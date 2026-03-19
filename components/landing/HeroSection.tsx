@@ -64,7 +64,18 @@ const HeroSection = ({ onRequestDemo }: { onRequestDemo?: () => void }) => {
               <LandingButton variant="hero" size="xl" onClick={onRequestDemo}>
                 Solicitar demo <ArrowRight className="ml-1 h-4 w-4" />
               </LandingButton>
-              <LandingButton variant="hero-outline" size="xl" onClick={() => router.push('/play')}>
+              <LandingButton
+                variant="hero-outline"
+                size="xl"
+                onClick={() => {
+                  // Workaround: if we navigate away from a URL like /#problema,
+                  // "Back" may return to "/" without the hash. We restore scroll on landing.
+                  if (typeof window !== "undefined" && window.location.hash) {
+                    sessionStorage.setItem("landing_restore_hash", window.location.hash);
+                  }
+                  router.push("/play");
+                }}
+              >
                 <Play className="mr-1 h-4 w-4" /> Quiero probar
               </LandingButton>
             </motion.div>
