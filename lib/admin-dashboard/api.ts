@@ -1,23 +1,35 @@
 import type {
   AdminWorkspace,
+  AssessmentInvite,
   AssessmentImportRecord,
   CandidatePipelineStage,
   CandidateResult,
   CandidateStatus,
+  JobStatus,
   RecruiterAuditBundle,
-  UpcomingInterview,
   VacancyRecommendation,
   VacancyScoreProfileId,
 } from '@/types/admin-dashboard';
 import type { RecruiterAccessSession } from '@/lib/admin-dashboard/recruiter-session';
+import { readRecruiterAccessSession } from '@/lib/admin-dashboard/recruiter-session';
+
+function adminSessionHeaders() {
+  const session = readRecruiterAccessSession();
+  if (!session) return {};
+  return {
+    'x-initium-recruiter-session': session.sessionId,
+    'x-initium-recruiter-email': session.email,
+  };
+}
 
 async function request<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  headers.set('Content-Type', 'application/json');
+  Object.entries(adminSessionHeaders()).forEach(([key, value]) => headers.set(key, value));
+
   const response = await fetch(input, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers || {}),
-    },
     ...init,
+    headers,
   });
 
   if (!response.ok) {
@@ -53,9 +65,27 @@ export async function createAdminJob(payload: {
   location: string;
   owner?: string;
   scoreProfileId?: VacancyScoreProfileId;
+  jobDescription?: string;
+  status?: JobStatus;
 }) {
   return request<{ workspace: AdminWorkspace }>('/api/admin/jobs', {
     method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateAdminJob(payload: {
+  id: string;
+  title?: string;
+  department?: string;
+  location?: string;
+  owner?: string;
+  scoreProfileId?: VacancyScoreProfileId;
+  jobDescription?: string;
+  status?: JobStatus;
+}) {
+  return request<{ workspace: AdminWorkspace }>('/api/admin/jobs', {
+    method: 'PATCH',
     body: JSON.stringify(payload),
   });
 }
@@ -71,7 +101,11 @@ export async function updateAdminCandidate(payload: {
   id: string;
   status: CandidateStatus;
   pipelineStage: CandidatePipelineStage;
+  vacancyId?: string;
+  phone?: string;
+  recruiterNotes?: string;
   shortlistManual?: boolean;
+  shortlistOrder?: number;
   vacancyRecommendation?: VacancyRecommendation;
 }) {
   return request<{ workspace: AdminWorkspace }>('/api/admin/candidates', {
@@ -80,8 +114,8 @@ export async function updateAdminCandidate(payload: {
   });
 }
 
-export async function createAdminInterview(payload: UpcomingInterview) {
-  return request<{ workspace: AdminWorkspace }>('/api/admin/interviews', {
+export async function createAdminInvite(payload: AssessmentInvite) {
+  return request<{ workspace: AdminWorkspace }>('/api/admin/invites', {
     method: 'POST',
     body: JSON.stringify(payload),
   });

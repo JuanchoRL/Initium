@@ -18,5 +18,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Assessment result payload is incomplete' }, { status: 400 });
   }
 
-  return NextResponse.json({ results: upsertAssessmentResult(body) });
+  try {
+    const results = upsertAssessmentResult(body);
+    return NextResponse.json({ results });
+  } catch (err: any) {
+    return NextResponse.json({ error: String(err.message || err) }, { status: 500 });
+  }
 }

@@ -29,10 +29,10 @@ test.describe('dashboard recruiter/candidate views', () => {
     await expect(page.getByText('Modo candidato')).toBeVisible();
     await expect(page.getByTestId('candidate-summary')).toBeVisible();
     await expect(page.getByTestId('recruiter-insights')).toHaveCount(0);
-    await expect(page.getByTestId('candidate-score-legend')).toBeVisible();
-    await expect(page.getByTestId('signal-quality-card')).toBeVisible();
-    await expect(page.getByTestId('candidate-fast-read')).toBeVisible();
-    await expect(page.getByTestId('candidate-weekly-plan')).toBeVisible();
+    await expect(page.getByTestId('candidate-score-legend')).toHaveCount(0);
+    await expect(page.getByTestId('signal-quality-card')).toHaveCount(0);
+    await expect(page.getByTestId('candidate-fast-read')).toHaveCount(0);
+    await expect(page.getByTestId('candidate-weekly-plan')).toHaveCount(0);
     await expect(page.getByTestId('copy-summary-btn')).toBeVisible();
   });
 });

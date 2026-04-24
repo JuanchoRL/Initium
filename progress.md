@@ -90,6 +90,33 @@ TODO suggested next
 - Add mobile haptic/audio optional feedback for switch toggles and wrong routing.
 - Move `GameNetwork` to its own feature module to reduce `app/page.tsx` size.
 
+2026-04-23 - Hardening pass started
+- Replaced deprecated `middleware.ts` with `proxy.ts` and preserved query params on `/` -> `/es` redirect so debug routes like `/?debug_game=memory` continue to work.
+- Restored candidate role capture in login; candidate submissions now require a role objective, recruiter role stays optional.
+- Removed render-time `setTimeout` side effect from the instructions stage and moved it into a stage effect.
+- Added baseline admin API session guard via `x-initium-recruiter-session` + `x-initium-recruiter-email`, backed by active recruiter sessions in SQLite.
+- Delayed admin dashboard bootstrap until a recruiter session exists client-side.
+- Replaced console-only event ingestion with privacy-limited JSONL persistence at `data/assessment-events.jsonl`.
+- Extracted signal confidence calculation into `lib/assessment/signal-confidence.ts` and now persists the signal quality summary with assessment metrics.
+- Updated `.gitignore` to keep local DB/event/debug/build artifacts out of source control.
+
+2026-04-23 - Hardening verification
+- `npm run lint` now runs `tsc --noEmit` and passes.
+- `npm run build` passes on Next 16.1.6 with the expected `node:sqlite` ExperimentalWarning still present.
+- Full Playwright suite passes: 8/8.
+- Updated consent visual snapshot after stabilizing the consent screen selector and restoring role capture.
+- Debug game tutorials are disabled for `?debug_game=...` so automated checks can reach gameplay directly.
+- Validated admin guard manually:
+  - `GET /api/admin/workspace` without session returns 401.
+  - Recruiter login creates an active session.
+  - `GET /api/admin/workspace` with session/email headers returns 200.
+- Ran `develop-web-game` client against `?debug_game=network`; latest state showed active gameplay with timer at 58s and a visible packet. Latest inspected screenshot: `output/web-game/shot-1.png`.
+
+TODO suggested next
+- Replace `node:sqlite` with a stable DB adapter before production if the Node ExperimentalWarning is unacceptable.
+- Add first-class auth/cookies or an external identity provider; current recruiter session header is a baseline guard, not a complete production auth layer.
+- Add E2E coverage for the real `/admin` login -> workspace flow, not only result-dashboard views.
+
 2026-02-08 - UX/gameplay correction pass (user feedback)
 - Removed game `routing` (Nexus de Datos) from assessment flow.
 - Total active games is now 6: memory, leadership, problemSolving, risk, network, strategy.
@@ -258,6 +285,29 @@ TODO suggested next
   - New stage `contextIntro` between Welcome and first Instructions.
   - 3 concise slides with auto-advance + skip.
   - Hooked telemetry events (`context_intro_started`, `context_intro_completed`).
+
+2026-03-12 - Recruiter command center + shortlist final por vacante
+- Cerrado el refinamiento recruiter orientado a decisión con dos capas nuevas:
+  - `Mesa de decisión` rediseñada como command center táctico, con summary strip, readiness bar, fortaleza/riesgo principal y CTA recruiter más claros.
+  - `Shortlist final por vacante` con selector de vacante, ranking manual persistente y controles de prioridad subir/bajar.
+- La persistencia de shortlist por vacante quedó conectada end-to-end:
+  - backend SQLite ya guarda `shortlist_order`,
+  - API de candidatos acepta `shortlistOrder`,
+  - shell admin envía y audita `reorder-shortlist`,
+  - tabla de candidatos ahora muestra `#n en shortlist` cuando corresponde.
+- Vista recruiter:
+  - dashboard: `DecisionQueueCard` + `ShortlistVacancyCard` + `CandidateComparisonCard`.
+  - candidates: misma lógica táctica replicada sin depender de interpretación manual del score.
+- Auditoría recruiter:
+  - agregado label/icon/tone para acción `reorder-shortlist`.
+- Validación:
+  - `npm run build` OK.
+  - `npm run qa:simulator` OK (`8/8`).
+
+TODO sugeridos siguientes
+- Mostrar también la posición actual de shortlist dentro del modal de detalle del candidato.
+- Permitir drag and drop para reordenar shortlist si se quiere una UX aún más ejecutiva.
+- Hacer una pasada visual adicional del command center recruiter para compactar aún más la comparación side-by-side en pantallas medianas.
 - Preserved existing premium transition from memory to leadership and adapted labels to avoid hardcoded game numbering.
 - Dashboard updates:
   - Added personality badge card (`Arquetipo detectado`).
@@ -1049,3 +1099,169 @@ Validacion ejecutada
 Validacion ejecutada
 - `npm run build` OK.
 - `npm run qa:simulator` OK (8/8 tests).
+
+2026-03-12 - Segunda pasada visual sobre command center + posicion de shortlist en ficha
+- La `Mesa de decision` se compacto y jerarquizo como command center recruiter:
+  - cabecera premium con metricas tacticas
+  - filas mas densas
+  - readiness visible sin expandir
+  - señales clave empaquetadas en tarjetas compactas
+  - CTA recruiter mas claro y menos verboso
+- La ficha del candidato ahora muestra con mas claridad la posicion dentro del shortlist:
+  - badge visible en el bloque de decision
+  - bloque dedicado `Lectura de shortlist` en la columna operativa
+  - estado futuro visible cuando el recruiter marca shortlist antes de guardar
+
+Validacion ejecutada
+- `npm run build` OK.
+- `npm run qa:simulator` OK (8/8 tests).
+
+2026-03-12 - Ficha del candidato mas ejecutiva y compacta
+- La ficha del candidato se reorganizo en tres niveles de lectura:
+  - resumen ejecutivo superior con score, readiness, fuente y ultima actualizacion
+  - bloque central de decision con shortlist, recomendacion y siguiente paso
+  - detalle fino relegado a un desplegable de competencias
+- Se redujo la longitud visual del modal:
+  - fortalezas, riesgos y foco tactico pasaron a una grilla compacta
+  - el desglose de scores ahora se abre solo si el recruiter necesita el detalle
+  - la columna lateral ahora funciona como panel operativo y no como una segunda pagina vertical
+
+2026-03-12 - Comparacion rapida y shortlist final con pasada ejecutiva
+- La `Comparacion rapida` se rediseño como lectura recruiter side-by-side mas ejecutiva:
+  - cada perfil ahora vive en una tarjeta compacta, no en una tabla larga
+  - se destacan lideres por score, readiness, tecnico y soft skills
+  - se agrega lectura comparativa corta para decidir a quien mover primero
+  - fortalezas, riesgos y foco tactico quedaron visibles sin abrir la ficha
+- La `Shortlist final por vacante` se llevo a una logica mas premium y de comite:
+  - selector de vacante integrado al resumen superior
+  - top 1 convertido en bloque protagonista con lectura operativa
+  - cola de prioridad separada y mas clara para alternativas
+  - jerarquia visual alineada con la Mesa de decision recruiter
+
+Validacion ejecutada
+- `npm run build` OK.
+- `npm run qa:simulator` OK (8/8 tests).
+
+2026-03-12 - Tabla de candidatos ejecutiva y auditoria premium
+- La `tabla de candidatos` se transformo en una vista recruiter mas ejecutiva:
+  - se reemplazo la tabla plana por tarjetas tacticas orientadas a decision
+  - cada perfil ahora muestra decision sugerida, recomendacion, shortlist, readiness y señales clave en primer nivel
+  - se agrego una lectura operativa y acciones directas para shortlist, priorizacion y detalle
+  - el bloque superior ahora resume perfiles visibles, listos para mover, casos a revisar y score medio
+- La vista `Auditoria` se llevo al mismo nivel visual que el command center recruiter:
+  - nueva cabecera premium con lectura de riesgo, foco actual y exportacion CSV integrada
+  - filtros de busqueda, accion y estado de sesion embebidos en el panel principal
+  - se reorganizaron sesiones activas, ultimos accesos, cierres recientes y actividad operativa en modulos mas claros
+  - se agrego lectura rapida para convertir la auditoria en una herramienta operativa real y no solo historica
+
+Validacion ejecutada
+- `npm run build` OK.
+- `npm run qa:simulator` OK (8/8 tests).
+
+2026-03-18 - Portada recruiter mas ejecutiva y responsive admin mejorado
+- La portada general del dashboard recruiter se llevo a una capa mas "executive":
+  - nuevo bloque hero con resumen operativo del dia para el owner activo
+  - senales inmediatas de perfiles listos, agenda proxima, shortlist activa y decisiones abiertas
+  - dos paneles tacticos para foco del dia, cuello de botella del pipeline, imports pendientes y lectura operativa recruiter
+- Se adelanto la composicion en escritorio chico y tablet para que el admin no espere hasta resoluciones 2xl:
+  - pipeline + fit widget ahora se acomodan antes
+  - candidatos + entrevistas y vacantes + alertas tambien pasan a dos columnas desde xl
+  - la vista de assessments recibe el mismo ajuste para que radar y scorecards respiren mejor en laptop/tablet
+- La cabecera recruiter ya opera como panel lateral de herramientas y la sidebar mantiene mejor comportamiento en mobile/tablet:
+  - el drawer movil ahora conserva un ancho usable aunque la sidebar este colapsada en desktop
+  - la lectura visual del admin mantiene mejor jerarquia entre navegacion, portada y contenido tactico
+
+Validacion ejecutada
+- `npm run build` OK.
+- `npm run qa:simulator` OK (8/8 tests).
+
+## 2026-03-19 - Integración del módulo Ethics OS
+- Se integró el minijuego `GameEthicsAudit` como octava evaluación del assessment con ID `ethics`.
+- Se añadió el flujo completo a `app/page.tsx`: definición del juego, tutorial, hints, fixture de debug, render y persistencia final de score/metrics.
+- El nuevo módulo emite `onGameComplete(endReason)` y también entrega `onComplete({ score, metrics })` para que la plataforma capture el ending ID y continúe a la siguiente fase.
+- Se incorporó el eje `ethics` al dashboard final, radar, señales recruiter/candidate y cálculo de calidad de señal.
+- Se incorporó `ethics` al scoring por vacante (`types/admin-dashboard.ts` y `lib/admin-dashboard/vacancy-scoring.ts`) para que influya en soft skills, behavioral fit, communication, leadership potential y culture fit.
+- Se corrigió un bug interno del módulo Fake OS: abrir Auditoría OS temprano ya no bloquea el disparo narrativo de Carlos.
+- Validación completada con `npm run build` y `npm run qa:simulator` (8/8).
+- La comprobación dirigida de `debug_game=ethics` vía navegador automatizado quedó limitada por restricciones del sandbox/browser local, pero el módulo compila e integra correctamente dentro del flujo principal.
+## 2026-03-19 - Ajustes UX/UI Ethics OS tras prueba manual
+- Se eliminó la barra superior agregada al Fake OS y se reemplazó por una introducción narrativa más clara durante el arranque.
+- Se reforzó la visibilidad de los inputs de contraseña en +Mail y en la carpeta confidencial con fondo oscuro fijo, color de texto explícito y `WebkitTextFillColor`.
+- Se bloqueó el scroll global mientras el módulo Ethics OS está montado para evitar que las ventanas del escritorio se superpongan con el resto de la página durante la simulación.
+- Se reemplazó la pantalla de resultado directa por un cierre neutro de "Simulación completada" con handoff automático al siguiente paso del assessment.
+- También se neutralizó el naming interno visible de los endings para evitar etiquetas agresivas en futuras superficies del producto.
+
+## 2026-03-19 - Ethics OS cleanup after user regression report
+- Removed the step-by-step external tutorial for the ethics game and replaced it with a non-spoilery simulation context block in the phase intro.
+- Removed the in-desktop intro overlay and the top critical-time red bar from Ethics OS to stay closer to the original module behavior.
+- Simplified the game completion handoff: the module now computes the result once, shows a short neutral completion state, and auto-advances via `onComplete` without the previous stale `finalResult` dependency.
+- Kept the stronger password-field visibility fix and the scroll-lock fix from the prior pass.
+- Validation: `npm run qa:simulator` used as authoritative verification because it includes a production build and Playwright regression suite.
+
+## 2026-03-19 - Ethics OS handoff hardening + viewport fix
+- Removed the body/html global scroll lock from Ethics OS because it was clipping the lower taskbar inside the assessment shell on shorter viewports.
+- Made the desktop area responsive with a viewport-based max height so the bottom taskbar remains visible more often inside the platform chrome.
+- Hardened the end-of-game flow: `finalizeGame` now computes the final result once, transitions to a lightweight handoff state, schedules the automatic `onComplete(result)` directly, and exposes a manual fallback button if the parent flow does not advance in time.
+- This pass keeps the non-spoilery tutorial copy and the removal of the intrusive intro panel/red critical bar.
+- Validation: `npm run build` and `npm run qa:simulator` both pass after the change.
+
+## 2026-03-19 - Intro voiceover synced by slide
+- Segmenté la locución de bienvenida en fragmentos por slide dentro de `ContextIntroScreen`.
+- Cada texto ahora reproduce su propio tramo de `/public/audio/initium-intro.mp3` y se detiene al terminar.
+- Si el autoplay es bloqueado, el botón `Activar narración` retoma el fragmento del slide actual, no el audio completo desde el inicio.
+
+## 2026-03-19 - Transition voiceovers added
+- Copié seis locuciones de transición a `public/audio/transitions/1.mp3` ... `6.mp3`.
+- `BetweenGamesTransitionScreen` ahora reproduce automáticamente el audio correspondiente a cada frase.
+- La duración de la transición se ajusta a cada pista con un margen breve y mantiene fallback `Activar audio` si el navegador bloquea autoplay.
+
+## 2026-03-19 - Personality archetype derivation fixed
+- El arquetipo del dashboard ya no depende solo de un label fijo guardado en estado.
+- Ahora se resuelve desde los metrics reales del test DISC (`dominant_profile` + `secondary_profile`) y usa combinaciones mas expresivas.
+- Se propagó el arquetipo efectivo al dashboard, al resume de sesión y a la persistencia final del assessment.
+
+2026-03-19 - Ethics OS handoff and viewport stabilization
+- Reworked `GameEthicsAudit` closing flow to remove fragile timeout-only dependence during handoff.
+- Added deterministic auto-submit via effect on `phase === handoff` and kept an always-visible `Continuar evaluación` button as user-safe fallback.
+- Restored boot experience to the simpler terminal-style screen instead of the large narrative card.
+- Reduced Ethics OS module height so the bottom taskbar fits within the assessment viewport more reliably.
+- Goal of this pass: eliminate the stuck `Procesando/Registrando decisiones` state and recover the lower taskbar visibility inside the assessment shell.
+
+2026-03-19 - Ethics OS follow-up hardening
+- Confirmed via Playwright that the Fake OS taskbar is visible again after shrinking the module viewport.
+- Replaced the handoff auto-advance trigger from `requestAnimationFrame` to a small timeout (`1400ms`) to make the assessment handoff more reliable across real browser timing conditions.
+- Compacted the completion overlay so it fits within shorter laptop viewports and keeps the manual `Continuar evaluación` action visible without scrolling.
+- Added a dedicated local debug script at `tmp-debug/ethics-flow-check.mjs` to replay the Ethics OS flow and inspect `window.render_game_to_text` snapshots during future regressions.
+- Note: the urgent-mail click path in the debug script still needs one more locator refinement if we want a fully automated end-to-end replay of the entire ethics narrative.
+
+## 2026-03-19 - Recruiter dashboard simplification and modal fit pass
+- Simplified the sticky recruiter header in `dashboard-header.tsx`: removed the long explanatory paragraph, removed the `Uso recomendado` and `Lectura rápida` helper cards, and compressed the header into a lower-height control surface.
+- Kept the key workspace context but converted the three top stat cards into smaller inline pills so the header occupies less vertical space while scrolling.
+- Removed the `Shortlist final por vacante` block from both the main dashboard and the candidates view so the `Mesa de decisión` gets the full horizontal focus.
+- Expanded breathing room inside `DecisionQueueCard` and removed a duplicated secondary title/description block to reduce visual noise in the candidates area.
+- Reworked `CandidateDetailModal` to fit the viewport better: increased usable width, capped modal height to the viewport, and moved the content into an internal scroll container so the technical sheet no longer spills outside the screen.
+- Validation: `npm run build` and `npm run qa:simulator` both pass after the recruiter dashboard simplification pass.
+- Segunda pasada visual sobre recruiter dashboard (`Candidatos`): header superior más compacto, sin textos operativos redundantes y con contexto en formato pill.
+- Ficha técnica del candidato ajustada a viewport (`items-start`, scroll interno, max width/height más controlados) y con menos duplicación visible; se añadió también el subtipo DISC en la cabecera de perfil.
+- Reequilibrio visual de `Mesa de decisión`, `Comparación rápida` y `Scorecards`: más separación entre secciones, más aire en cards y comparación ensanchada para reducir densidad en desktop.
+- Validación: `npm run build` OK y `npm run qa:simulator` OK (8/8).
+
+## 2026-03-20 - Recruiter header unified and search made visible
+- Reworked `components/admin-dashboard/dashboard-header.tsx` so the top recruiter area reads as a single surface instead of two competing bubbles/cards.
+- Removed the extra workspace badge from the top row and consolidated it into one primary pill (`Workspace recruiter · {workspace}`) to avoid asymmetry.
+- Flattened the right-side controls: the search/filter/actions block no longer lives inside a second inset panel, so the whole header feels lighter and less fragmented.
+- Kept the header non-sticky and compact so it does not obscure content while scrolling.
+- Added a visible global search response layer in `components/admin-dashboard/admin-dashboard-shell.tsx`.
+- Search now shows an explicit results panel with candidate, vacancy, interview and recruiter matches, plus a `Limpiar búsqueda` action.
+- Normalized recruiter matching through a dedicated `filteredRecruiters` memo so recruiter searches contribute to both the summary and the new results panel.
+- Validation: `npm run build` OK and `npm run qa:simulator` OK (8/8).
+
+## 2026-03-26 - Vacantes operativas y limpieza de portada recruiter
+- Removed the executive header block from the candidate scorecards on the main dashboard only, keeping the fuller header in the dedicated `Candidatos` view.
+- Extended vacancy creation end-to-end to carry `jobDescription`, including backend persistence in SQLite, API payloads, and the existing modal with textarea/file-assisted input.
+- Added recruiter-side vacancy status control in `ActiveJobsTable`: each vacancy can now be set to `Activa`, `On hold`, `Cerrada`, `Pendiente` or `Borrador` directly from the dashboard.
+- Surfaced a short job description preview in the vacancies table so recruiters can see whether the role already has posting content loaded.
+- Added job update wiring in `admin-dashboard-shell.tsx`, including recruiter audit logging for vacancy status changes.
+- Localized status badges to Spanish and added support for `on-hold` and `closed` states.
+- Rebalanced the jobs view KPI cards to reflect the statuses that matter operationally now (`Activas`, `On hold`, `Cerradas`).
+- Validation: `npm run build` OK and `npm run qa:simulator` OK (8/8).

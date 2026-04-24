@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { appendTelemetryEvents } from '@/lib/server/telemetry-store';
 
 type IncomingEvent = {
   event: string;
@@ -48,15 +49,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, accepted: 0 });
   }
 
-  // Replace this with persistence to your analytics store (Firestore, BigQuery, Kafka, etc).
-  // Keeping this explicit console line is useful during integration and QA.
-  console.info('[events_ingest]', {
-    sessionId: body.sessionId,
-    role: body.candidate?.role ?? 'n/a',
-    emailMasked: body.candidate?.emailMasked ?? 'masked',
-    accepted: events.length,
-    sample: events[0],
-  });
+  try {
+    appendTelemetryEvents({
+      sessionId: body.sessionId,
+      role: body.candidate?.role,
+      emailMasked: body.candidate?.emailMasked,
+      events,
+    });
+  } catch (error) {
+    console.error('[events_ingest_failed]', error);
+    return NextResponse.json({ error: 'Failed to persist events' }, { status: 500 });
+  }
 
   return NextResponse.json({
     ok: true,

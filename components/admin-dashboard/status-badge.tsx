@@ -1,14 +1,20 @@
 import { Badge } from '@/components/ui/badge';
 
 const config = {
-  active: { label: 'Active', variant: 'active' as const },
-  pending: { label: 'Pending', variant: 'pending' as const },
-  rejected: { label: 'Rejected', variant: 'rejected' as const },
-  shortlisted: { label: 'Shortlisted', variant: 'shortlisted' as const },
-  hired: { label: 'Hired', variant: 'hired' as const },
-  confirmed: { label: 'Confirmed', variant: 'active' as const },
-  rescheduled: { label: 'Rescheduled', variant: 'pending' as const },
-  draft: { label: 'Draft', variant: 'outline' as const },
+  active: { label: 'Activa', variant: 'active' as const },
+  'on-hold': { label: 'On hold', variant: 'pending' as const },
+  closed: { label: 'Cerrada', variant: 'outline' as const },
+  pending: { label: 'Pendiente', variant: 'pending' as const },
+  rejected: { label: 'No avanzar', variant: 'rejected' as const },
+  shortlisted: { label: 'Shortlist', variant: 'shortlisted' as const },
+  hired: { label: 'Contratado', variant: 'hired' as const },
+  confirmed: { label: 'Confirmada', variant: 'active' as const },
+  rescheduled: { label: 'Reagendada', variant: 'pending' as const },
+  draft: { label: 'Borrador', variant: 'outline' as const },
+  sent: { label: 'Enviada', variant: 'active' as const },
+  completed: { label: 'Completada', variant: 'shortlisted' as const },
+  expired: { label: 'Vencida', variant: 'rejected' as const },
+  cancelled: { label: 'Cancelada', variant: 'outline' as const },
 };
 
 export function StatusBadge({ status }: { status: keyof typeof config }) {

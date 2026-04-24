@@ -1,6 +1,0 @@
-[
-  {
-    "type": "console.error",
-    "text": "Error: <path> attribute d: Expected moveto path command ('M' or 'm'), \"undefined\"."
-  }
-]

@@ -19,7 +19,7 @@ const DEFAULT_WORKSPACE: AdminWorkspace = {
   ownerRole: 'Equipo de RRHH',
   jobs: [],
   candidates: [],
-  interviews: [],
+  invites: [],
 };
 
 export function createEmptyWorkspace(): AdminWorkspace {
@@ -27,7 +27,7 @@ export function createEmptyWorkspace(): AdminWorkspace {
     ...DEFAULT_WORKSPACE,
     jobs: [],
     candidates: [],
-    interviews: [],
+    invites: [],
   };
 }
 
@@ -47,6 +47,7 @@ export function buildCandidateFromAssessment({
     id: `candidate-${record.id}`,
     name: record.candidateName,
     email: record.candidateEmail,
+    phone: '',
     vacancyId: job.id,
     vacancy: job.title,
     department: job.department,
@@ -65,8 +66,10 @@ export function buildCandidateFromAssessment({
     assessmentId: record.id,
     strategyProfile: record.strategyProfile,
     personalityProfile: record.personalityProfile,
+    personalitySubtype: record.personalitySubtype,
     rawScores: record.scores,
     scoreProfileId: scoreSummary.scoreProfileId,
+    recruiterNotes: '',
   };
 }
 

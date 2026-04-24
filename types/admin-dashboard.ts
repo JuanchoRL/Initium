@@ -5,18 +5,19 @@ export type AdminView =
   | 'candidates'
   | 'jobs'
   | 'pipeline'
-  | 'interviews'
+  | 'invites'
   | 'assessments'
   | 'audit'
   | 'reports'
   | 'settings';
 
 export type CandidateStatus = 'active' | 'pending' | 'rejected' | 'shortlisted' | 'hired';
-export type CandidatePipelineStage = 'applied' | 'screening' | 'assessment' | 'interview' | 'final-review' | 'hired';
+export type CandidatePipelineStage = 'applied' | 'screening' | 'assessment' | 'final-review' | 'hired';
 export type CandidateSource = 'manual' | 'assessment';
 export type VacancyRecommendation = 'recommended' | 'reserve' | 'no-advance';
-export type JobStatus = 'active' | 'pending' | 'draft';
+export type JobStatus = 'active' | 'on-hold' | 'closed' | 'pending' | 'draft';
 export type InterviewStatus = 'confirmed' | 'pending' | 'rescheduled';
+export type AssessmentInviteStatus = 'draft' | 'sent' | 'completed' | 'expired' | 'cancelled';
 export type AlertSeverity = 'critical' | 'warning' | 'info' | 'success';
 export type FilterKind = 'all' | 'department' | 'job';
 
@@ -72,6 +73,7 @@ export type VacancyScoreProfile = {
     memory: number;
     leadership: number;
     problemSolving: number;
+    ethics: number;
     risk: number;
     network: number;
     strategy: number;
@@ -87,6 +89,7 @@ export type CandidateResult = {
   id: string;
   name: string;
   email: string;
+  phone?: string;
   vacancyId: string;
   vacancy: string;
   department: string;
@@ -105,12 +108,17 @@ export type CandidateResult = {
   assessmentId?: string;
   strategyProfile?: string;
   personalityProfile?: string;
+  personalitySubtype?: string;
   rawScores?: Record<string, number>;
   hiredAt?: string;
   scoreProfileId?: VacancyScoreProfileId;
+  recruiterNotes?: string;
   shortlistManual?: boolean;
+  shortlistOrder?: number;
   vacancyRecommendation?: VacancyRecommendation;
   vacancyRecommendationSource?: 'system' | 'manual';
+  aiMatchScore?: number;
+  aiMatchReason?: string;
 };
 
 export type JobOpening = {
@@ -122,12 +130,13 @@ export type JobOpening = {
   owner: string;
   postedAt: string;
   scoreProfileId: VacancyScoreProfileId;
+  jobDescription?: string;
 };
 
 export type JobOpeningWithStats = JobOpening & {
   appliedCount: number;
   assessmentCount: number;
-  interviewCount: number;
+  inviteCount: number;
   hiredCount: number;
   shortlistedCount: number;
   recommendedCount: number;
@@ -146,6 +155,20 @@ export type UpcomingInterview = {
   interviewer: string;
   status: InterviewStatus;
   format: 'Video' | 'On-site';
+};
+
+export type AssessmentInvite = {
+  id: string;
+  candidateName: string;
+  candidateEmail: string;
+  candidatePhone?: string;
+  vacancyId: string;
+  vacancy: string;
+  department: string;
+  recruiter: string;
+  expiresAt: string;
+  createdAt: string;
+  status: AssessmentInviteStatus;
 };
 
 export type AlertItem = {
@@ -184,7 +207,7 @@ export type AdminWorkspace = {
   ownerRole: string;
   jobs: JobOpening[];
   candidates: CandidateResult[];
-  interviews: UpcomingInterview[];
+  invites: AssessmentInvite[];
 };
 
 export type AssessmentImportRecord = {
@@ -195,6 +218,7 @@ export type AssessmentImportRecord = {
   completedAt: string;
   strategyProfile?: string;
   personalityProfile?: string;
+  personalitySubtype?: string;
   scores: Record<string, number>;
   metrics: Record<string, Record<string, number | string | boolean>>;
   totalScore: number;

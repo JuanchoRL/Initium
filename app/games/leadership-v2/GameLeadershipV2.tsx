@@ -22,6 +22,8 @@ import { PersonPanel } from './PersonPanel';
 import { ResultsModal } from './ResultsModal';
 import { TaskCard, TaskCardPreview } from './TaskCard';
 import type { GameEvent, PersonState, RoundEvaluationBundle, RoundResult, Task } from './types';
+import { useTutorial } from '@/lib/hooks/useTutorial';
+import { TutorialOverlay } from '@/components/ui/TutorialOverlay';
 
 type GameResult = { score: number; metrics: Record<string, number | string | boolean> };
 
@@ -79,6 +81,25 @@ export default function GameLeadershipV2({ onComplete, track }: Props) {
   const [reassignments, setReassignments] = useState(0);
 
   const roundBundlesRef = useRef<RoundEvaluationBundle[]>([]);
+
+  const tutorial = useTutorial([
+    {
+      id: 'step-profiles',
+      targetId: 'leadership-profiles-container',
+      title: 'Perfiles y Habilidades',
+      description: 'Evalúa la energía y habilidades de tu equipo. Asignar mal las tareas puede agotar sus barras rápidamente. Haz clic para continuar.',
+      actionRequired: 'custom',
+      animationType: 'click',
+    },
+    {
+      id: 'step-drag-task',
+      targetId: 'task-t1',
+      title: 'Gestión de Recursos',
+      description: 'Arrastra esta tarea urgente hacia el perfil más adecuado para completarla.',
+      actionRequired: 'drag',
+      animationType: 'drag',
+    }
+  ], true);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -144,6 +165,10 @@ export default function GameLeadershipV2({ onComplete, track }: Props) {
 
     const { active, over } = event;
     if (!over) return;
+
+    if (tutorial.isActive && tutorial.currentStep?.id === 'step-drag-task') {
+      tutorial.advanceStep();
+    }
 
     const taskId = String(active.id);
     const destinationId = String(over.id);
@@ -315,6 +340,11 @@ export default function GameLeadershipV2({ onComplete, track }: Props) {
 
   return (
     <div className="w-full max-w-[1400px] mx-auto pt-4 px-4 space-y-4 animate-fade-in pb-8">
+      <TutorialOverlay
+        isActive={tutorial.isActive}
+        targetRect={tutorial.targetRect}
+        step={tutorial.currentStep}
+      />
       <EventToast event={activeEvent} onClose={() => setActiveEvent(null)} />
 
       {roundResult && <ResultsModal result={roundResult} round={round} isFinalRound={round === 3} onNextRound={nextRound} />}
@@ -374,7 +404,15 @@ export default function GameLeadershipV2({ onComplete, track }: Props) {
               </div>
             </BacklogDropZone>
 
-            <div className="flex gap-6">
+            <div
+              id="leadership-profiles-container"
+              className={`flex gap-6 relative ${tutorial.isActive && tutorial.currentStep?.id === 'step-profiles' ? 'cursor-pointer' : ''}`}
+              onClickCapture={() => {
+                if (tutorial.isActive && tutorial.currentStep?.id === 'step-profiles') {
+                  tutorial.advanceStep();
+                }
+              }}
+            >
               {persons.map((person) => {
                 const state = personStates.find((item) => item.id === person.id);
                 if (!state) return null;

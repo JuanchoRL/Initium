@@ -1,15 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getWorkspaceBundle, updateWorkspaceSettings } from '@/lib/server/admin-db';
+import { requireAdminSession } from '@/lib/server/admin-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const unauthorized = requireAdminSession(request);
+  if (unauthorized) return unauthorized;
+
   return NextResponse.json({ workspace: getWorkspaceBundle() });
 }
 
 export async function PATCH(request: NextRequest) {
+  const unauthorized = requireAdminSession(request);
+  if (unauthorized) return unauthorized;
+
   let body: { organizationName?: string; ownerName?: string; ownerRole?: string };
   try {
     body = (await request.json()) as { organizationName?: string; ownerName?: string; ownerRole?: string };

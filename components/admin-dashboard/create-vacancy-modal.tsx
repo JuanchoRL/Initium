@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,7 @@ type CreateVacancyPayload = {
   department: string;
   location: string;
   scoreProfileId: VacancyScoreProfileId;
+  jobDescription: string;
 };
 
 export function CreateVacancyModal({
@@ -25,6 +26,13 @@ export function CreateVacancyModal({
   onOpenChange: (next: boolean) => void;
   onCreate: (payload: CreateVacancyPayload) => void;
 }) {
+  const [title, setTitle] = useState('');
+  const [department, setDepartment] = useState('');
+  const [location, setLocation] = useState('');
+  const [scoreProfileId, setScoreProfileId] = useState<VacancyScoreProfileId>('generalist');
+  const [jobDescription, setJobDescription] = useState('');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -33,6 +41,16 @@ export function CreateVacancyModal({
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, onOpenChange]);
+
+  useEffect(() => {
+    if (open) return;
+    setTitle('');
+    setDepartment('');
+    setLocation('');
+    setScoreProfileId('generalist');
+    setJobDescription('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, [open]);
 
   if (!open) return null;
 
@@ -53,29 +71,28 @@ export function CreateVacancyModal({
           className="space-y-4 p-6"
           onSubmit={(event) => {
             event.preventDefault();
-            const formData = new FormData(event.currentTarget);
             onCreate({
-              title: String(formData.get('title') ?? ''),
-              department: String(formData.get('department') ?? ''),
-              location: String(formData.get('location') ?? ''),
-              scoreProfileId: String(formData.get('scoreProfileId') ?? 'generalist') as VacancyScoreProfileId,
+              title,
+              department,
+              location,
+              scoreProfileId,
+              jobDescription,
             });
             onOpenChange(false);
-            event.currentTarget.reset();
           }}
         >
           <div className="space-y-2">
             <label htmlFor="vacancy-title" className="text-sm font-medium text-slate-700 dark:text-slate-300">Título de la vacante</label>
-            <Input id="vacancy-title" name="title" required placeholder="Ej. Senior Backend Engineer" />
+            <Input id="vacancy-title" name="title" required placeholder="Ej. Senior Backend Engineer" value={title} onChange={(event) => setTitle(event.target.value)} />
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <label htmlFor="vacancy-department" className="text-sm font-medium text-slate-700 dark:text-slate-300">Departamento</label>
-              <Input id="vacancy-department" name="department" required placeholder="Engineering" />
+              <Input id="vacancy-department" name="department" required placeholder="Engineering" value={department} onChange={(event) => setDepartment(event.target.value)} />
             </div>
             <div className="space-y-2">
               <label htmlFor="vacancy-location" className="text-sm font-medium text-slate-700 dark:text-slate-300">Ubicación</label>
-              <Input id="vacancy-location" name="location" required placeholder="Remote LATAM" />
+              <Input id="vacancy-location" name="location" required placeholder="Remote LATAM" value={location} onChange={(event) => setLocation(event.target.value)} />
             </div>
           </div>
           <div className="space-y-2">
@@ -83,7 +100,8 @@ export function CreateVacancyModal({
             <select
               id="vacancy-score-profile"
               name="scoreProfileId"
-              defaultValue="generalist"
+              value={scoreProfileId}
+              onChange={(event) => setScoreProfileId(event.target.value as VacancyScoreProfileId)}
               className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200"
             >
               {VACANCY_SCORE_PROFILE_OPTIONS.map((profile) => (
@@ -95,6 +113,39 @@ export function CreateVacancyModal({
             <p className="text-xs text-slate-500 dark:text-slate-400">
               Define qué competencias pesarán más al interpretar los resultados del assessment para esta vacante.
             </p>
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="vacancy-job-description" className="text-sm font-medium text-slate-700 dark:text-slate-300">Job description</label>
+            <textarea
+              id="vacancy-job-description"
+              name="jobDescription"
+              value={jobDescription}
+              onChange={(event) => setJobDescription(event.target.value)}
+              rows={6}
+              placeholder="Pega aquí la job description o sube un archivo .txt / .md para completar el rol."
+              className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700 outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-400 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200"
+            />
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".txt,.md,text/plain,text/markdown"
+                className="block text-xs text-slate-500 file:mr-3 file:rounded-xl file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-xs file:font-medium file:text-slate-700 hover:file:bg-cyan-50 hover:file:text-cyan-700"
+                onChange={async (event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  try {
+                    const text = await file.text();
+                    setJobDescription(text);
+                  } catch {
+                    setJobDescription((current) => current);
+                  }
+                }}
+              />
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Puedes pegar el texto o subir una versión simple de la JD para publicarla luego.
+              </p>
+            </div>
           </div>
           <div className="flex items-center justify-end gap-3 pt-2">
             <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>

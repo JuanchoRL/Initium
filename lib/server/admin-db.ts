@@ -11,6 +11,8 @@ import {
 import { resolveVacancyRecommendation } from '@/lib/admin-dashboard/recruiter-decisioning';
 import type {
   AdminWorkspace,
+  AssessmentInvite,
+  AssessmentInviteStatus,
   AssessmentImportRecord,
   CandidateFitScores,
   CandidatePipelineStage,
@@ -20,7 +22,6 @@ import type {
   RecruiterAuditBundle,
   RecruiterAuditEvent,
   RecruiterAuditSession,
-  UpcomingInterview,
   VacancyRecommendation,
   VacancyScoreProfileId,
 } from '@/types/admin-dashboard';
@@ -42,12 +43,14 @@ type JobRow = {
   owner: string;
   posted_at: string;
   score_profile_id: VacancyScoreProfileId;
+  job_description: string | null;
 };
 
 type CandidateRow = {
   id: string;
   name: string;
   email: string;
+  phone: string | null;
   vacancy_id: string;
   vacancy: string;
   department: string;
@@ -69,22 +72,27 @@ type CandidateRow = {
   raw_scores: string | null;
   hired_at: string | null;
   score_profile_id: string | null;
+  recruiter_notes: string | null;
   shortlist_manual: number | null;
+  shortlist_order: number | null;
   vacancy_recommendation: VacancyRecommendation | null;
   vacancy_recommendation_source: 'system' | 'manual' | null;
+  ai_match_score?: number | null;
+  ai_match_reason?: string | null;
 };
 
-type InterviewRow = {
+type InviteRow = {
   id: string;
-  candidate_id: string;
   candidate_name: string;
+  candidate_email: string;
+  candidate_phone: string | null;
   vacancy_id: string;
   vacancy: string;
   department: string;
-  scheduled_at: string;
-  interviewer: string;
-  status: UpcomingInterview['status'];
-  format: UpcomingInterview['format'];
+  recruiter: string;
+  expires_at: string;
+  created_at: string;
+  status: AssessmentInviteStatus;
 };
 
 type AssessmentResultRow = {
@@ -161,6 +169,7 @@ function createDatabase() {
       owner TEXT NOT NULL,
       posted_at TEXT NOT NULL,
       score_profile_id TEXT NOT NULL DEFAULT 'generalist',
+      job_description TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -190,6 +199,7 @@ function createDatabase() {
       raw_scores TEXT,
       hired_at TEXT,
       score_profile_id TEXT,
+      shortlist_order INTEGER,
       created_at TEXT NOT NULL
     );
 
@@ -204,6 +214,21 @@ function createDatabase() {
       interviewer TEXT NOT NULL,
       status TEXT NOT NULL,
       format TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS assessment_invites (
+      id TEXT PRIMARY KEY,
+      candidate_name TEXT NOT NULL,
+      candidate_email TEXT NOT NULL,
+      candidate_phone TEXT,
+      vacancy_id TEXT NOT NULL,
+      vacancy TEXT NOT NULL,
+      department TEXT NOT NULL,
+      recruiter TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      status TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -277,10 +302,16 @@ function createDatabase() {
   }
 
   ensureColumn(db, 'jobs', 'score_profile_id', "TEXT NOT NULL DEFAULT 'generalist'");
+  ensureColumn(db, 'jobs', 'job_description', "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, 'candidates', 'score_profile_id', 'TEXT');
+  ensureColumn(db, 'candidates', 'phone', 'TEXT');
+  ensureColumn(db, 'candidates', 'recruiter_notes', 'TEXT');
   ensureColumn(db, 'candidates', 'shortlist_manual', 'INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(db, 'candidates', 'shortlist_order', 'INTEGER');
   ensureColumn(db, 'candidates', 'vacancy_recommendation', 'TEXT');
   ensureColumn(db, 'candidates', 'vacancy_recommendation_source', "TEXT NOT NULL DEFAULT 'system'");
+  ensureColumn(db, 'candidates', 'ai_match_score', 'INTEGER');
+  ensureColumn(db, 'candidates', 'ai_match_reason', 'TEXT');
   ensureColumn(db, 'assessment_results', 'score_profile_id', 'TEXT');
   seedJobScoreProfiles(db);
 
@@ -331,7 +362,7 @@ function safeParseJson<T>(raw: string | null): T | null {
   }
 }
 
-const PIPELINE_STAGE_ORDER: CandidatePipelineStage[] = ['applied', 'screening', 'assessment', 'interview', 'final-review', 'hired'];
+const PIPELINE_STAGE_ORDER: CandidatePipelineStage[] = ['applied', 'screening', 'assessment', 'final-review', 'hired'];
 
 function normalizeLookup(value: string) {
   return value
@@ -379,9 +410,9 @@ function resolveCandidateStatus(status: CandidateStatus | null | undefined, stag
 
 function selectMatchingJob(db: DatabaseSync, role: string) {
   const rows = db.prepare(
-    `SELECT id, title, department, location, status, owner, posted_at, score_profile_id
+    `SELECT id, title, department, location, status, owner, posted_at, score_profile_id, job_description
      FROM jobs
-     ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END, posted_at DESC, created_at DESC`
+     ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'on-hold' THEN 1 WHEN 'pending' THEN 2 WHEN 'draft' THEN 3 ELSE 4 END, posted_at DESC, created_at DESC`
   ).all() as JobRow[];
   const normalizedRole = normalizeLookup(role);
 
@@ -401,8 +432,8 @@ function ensureAssessmentJob(db: DatabaseSync, role: string, now: string) {
   const scoreProfileId = inferVacancyScoreProfile({ title: role, department });
 
   db.prepare(
-    `INSERT INTO jobs (id, title, department, location, status, owner, posted_at, score_profile_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
+    `INSERT INTO jobs (id, title, department, location, status, owner, posted_at, score_profile_id, job_description, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, '', ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        title = excluded.title,
        department = excluded.department,
@@ -411,7 +442,7 @@ function ensureAssessmentJob(db: DatabaseSync, role: string, now: string) {
   ).run(id, role, department, 'Por definir', 'Asignación automática', now, scoreProfileId, now, now);
 
   return db.prepare(
-    `SELECT id, title, department, location, status, owner, posted_at, score_profile_id
+    `SELECT id, title, department, location, status, owner, posted_at, score_profile_id, job_description
      FROM jobs
      WHERE id = ?`
   ).get(id) as JobRow;
@@ -419,7 +450,7 @@ function ensureAssessmentJob(db: DatabaseSync, role: string, now: string) {
 
 function getJobById(db: DatabaseSync, jobId: string) {
   return db.prepare(
-    `SELECT id, title, department, location, status, owner, posted_at, score_profile_id
+    `SELECT id, title, department, location, status, owner, posted_at, score_profile_id, job_description
      FROM jobs
      WHERE id = ?`
   ).get(jobId) as JobRow | undefined;
@@ -518,6 +549,33 @@ function deriveVacancyRecommendation(args: {
   };
 }
 
+type ShortlistOrderRow = {
+  id: string;
+  shortlist_order: number | null;
+  updated_at: string;
+};
+
+function getOrderedShortlistCandidateIds(db: DatabaseSync, vacancyId: string, excludeCandidateId?: string) {
+  const rows = db.prepare(
+    `SELECT id, shortlist_order, updated_at
+     FROM candidates
+     WHERE vacancy_id = ?
+       AND shortlist_manual = 1
+       ${excludeCandidateId ? 'AND id != ?' : ''}
+     ORDER BY CASE WHEN shortlist_order IS NULL THEN 1 ELSE 0 END ASC, shortlist_order ASC, updated_at DESC`
+  ).all(...(excludeCandidateId ? [vacancyId, excludeCandidateId] : [vacancyId])) as ShortlistOrderRow[];
+
+  return rows.map((row) => row.id);
+}
+
+function applyShortlistOrdering(db: DatabaseSync, orderedCandidateIds: string[]) {
+  if (!orderedCandidateIds.length) return;
+  const update = db.prepare('UPDATE candidates SET shortlist_order = ? WHERE id = ?');
+  orderedCandidateIds.forEach((candidateId, index) => {
+    update.run(index + 1, candidateId);
+  });
+}
+
 function syncCandidateFromAssessmentResult(db: DatabaseSync, input: AssessmentImportRecord, now: string) {
   const job = ensureAssessmentJob(db, input.role || 'Vacante sin definir', now);
   const summary = buildAssessmentSummary(
@@ -531,7 +589,7 @@ function syncCandidateFromAssessmentResult(db: DatabaseSync, input: AssessmentIm
   const existing = db.prepare(
     `SELECT id, name, email, vacancy_id, vacancy, department, total_score, technical_score, cognitive_score, soft_skills_score,
            fit_scores, status, pipeline_stage, applied_at, updated_at, location, recruiter, source, assessment_id,
-            strategy_profile, personality_profile, raw_scores, hired_at, score_profile_id, shortlist_manual,
+            strategy_profile, personality_profile, raw_scores, hired_at, score_profile_id, phone, recruiter_notes, shortlist_manual, shortlist_order,
             vacancy_recommendation, vacancy_recommendation_source
      FROM candidates
      WHERE assessment_id = ?
@@ -573,9 +631,9 @@ function syncCandidateFromAssessmentResult(db: DatabaseSync, input: AssessmentIm
     `INSERT INTO candidates (
       id, name, email, vacancy_id, vacancy, department, total_score, technical_score, cognitive_score, soft_skills_score,
       fit_scores, status, pipeline_stage, applied_at, updated_at, location, recruiter, source, assessment_id,
-      strategy_profile, personality_profile, raw_scores, hired_at, score_profile_id, shortlist_manual,
+      strategy_profile, personality_profile, raw_scores, hired_at, score_profile_id, phone, recruiter_notes, shortlist_manual, shortlist_order,
       vacancy_recommendation, vacancy_recommendation_source, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'assessment', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'assessment', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       email = excluded.email,
@@ -596,7 +654,10 @@ function syncCandidateFromAssessmentResult(db: DatabaseSync, input: AssessmentIm
       personality_profile = excluded.personality_profile,
       raw_scores = excluded.raw_scores,
       score_profile_id = excluded.score_profile_id,
+      phone = excluded.phone,
+      recruiter_notes = excluded.recruiter_notes,
       shortlist_manual = excluded.shortlist_manual,
+      shortlist_order = excluded.shortlist_order,
       vacancy_recommendation = excluded.vacancy_recommendation,
       vacancy_recommendation_source = excluded.vacancy_recommendation_source,
       pipeline_stage = ?,
@@ -626,7 +687,10 @@ function syncCandidateFromAssessmentResult(db: DatabaseSync, input: AssessmentIm
     JSON.stringify(input.scores),
     nextPipelineStage === 'hired' ? now : existing?.hired_at ?? null,
     summary.scoreProfileId,
+    existing?.phone ?? null,
+    existing?.recruiter_notes ?? null,
     Boolean(existing?.shortlist_manual) ? 1 : 0,
+    existing?.shortlist_order ?? null,
     nextRecommendation.recommendation,
     nextRecommendation.recommendationSource,
     existing ? existing.applied_at : now,
@@ -654,6 +718,7 @@ function mapJob(row: JobRow): JobOpening {
     owner: row.owner,
     postedAt: row.posted_at,
     scoreProfileId: row.score_profile_id,
+    jobDescription: row.job_description ?? undefined,
   };
 }
 
@@ -662,6 +727,7 @@ function mapCandidate(row: CandidateRow): CandidateResult {
     id: row.id,
     name: row.name,
     email: row.email,
+    phone: row.phone ?? undefined,
     vacancyId: row.vacancy_id,
     vacancy: row.vacancy,
     department: row.department,
@@ -683,24 +749,29 @@ function mapCandidate(row: CandidateRow): CandidateResult {
     rawScores: safeParseJson<Record<string, number>>(row.raw_scores) ?? undefined,
     hiredAt: row.hired_at ?? undefined,
     scoreProfileId: (row.score_profile_id as VacancyScoreProfileId | null) ?? undefined,
+    recruiterNotes: row.recruiter_notes ?? undefined,
     shortlistManual: Boolean(row.shortlist_manual),
+    shortlistOrder: row.shortlist_order ?? undefined,
     vacancyRecommendation: row.vacancy_recommendation ?? undefined,
     vacancyRecommendationSource: row.vacancy_recommendation_source ?? undefined,
+    aiMatchScore: row.ai_match_score ?? undefined,
+    aiMatchReason: row.ai_match_reason ?? undefined,
   };
 }
 
-function mapInterview(row: InterviewRow): UpcomingInterview {
+function mapInvite(row: InviteRow): AssessmentInvite {
   return {
     id: row.id,
-    candidateId: row.candidate_id,
     candidateName: row.candidate_name,
+    candidateEmail: row.candidate_email,
+    candidatePhone: row.candidate_phone ?? undefined,
     vacancyId: row.vacancy_id,
     vacancy: row.vacancy,
     department: row.department,
-    scheduledAt: row.scheduled_at,
-    interviewer: row.interviewer,
+    recruiter: row.recruiter,
+    expiresAt: row.expires_at,
+    createdAt: row.created_at,
     status: row.status,
-    format: row.format,
   };
 }
 
@@ -763,20 +834,20 @@ function mapRecruiterAuditEvent(row: RecruiterActivityEventRow): RecruiterAuditE
 export function getWorkspaceBundle(): AdminWorkspace {
   const db = getDb();
   const workspace = db.prepare('SELECT organization_name, owner_name, owner_role FROM workspace_settings WHERE id = 1').get() as WorkspaceRow;
-  const jobs = db.prepare('SELECT id, title, department, location, status, owner, posted_at, score_profile_id FROM jobs ORDER BY posted_at DESC, created_at DESC').all() as JobRow[];
+  const jobs = db.prepare('SELECT id, title, department, location, status, owner, posted_at, score_profile_id, job_description FROM jobs ORDER BY posted_at DESC, created_at DESC').all() as JobRow[];
   const candidates = db.prepare(`
     SELECT id, name, email, vacancy_id, vacancy, department, total_score, technical_score, cognitive_score, soft_skills_score,
            fit_scores, status, pipeline_stage, applied_at, updated_at, location, recruiter, source, assessment_id,
-           strategy_profile, personality_profile, raw_scores, hired_at, score_profile_id, shortlist_manual,
+           strategy_profile, personality_profile, raw_scores, hired_at, score_profile_id, phone, recruiter_notes, shortlist_manual, shortlist_order,
            vacancy_recommendation, vacancy_recommendation_source
     FROM candidates
-    ORDER BY updated_at DESC, created_at DESC
+    ORDER BY applied_at DESC, updated_at DESC
   `).all() as CandidateRow[];
-  const interviews = db.prepare(`
-    SELECT id, candidate_id, candidate_name, vacancy_id, vacancy, department, scheduled_at, interviewer, status, format
-    FROM interviews
-    ORDER BY scheduled_at ASC, created_at DESC
-  `).all() as InterviewRow[];
+  const invites = db.prepare(`
+    SELECT id, candidate_name, candidate_email, candidate_phone, vacancy_id, vacancy, department, recruiter, expires_at, created_at, status
+    FROM assessment_invites
+    ORDER BY created_at DESC
+  `).all() as InviteRow[];
 
   return {
     organizationName: workspace.organization_name,
@@ -784,7 +855,7 @@ export function getWorkspaceBundle(): AdminWorkspace {
     ownerRole: workspace.owner_role,
     jobs: jobs.map(mapJob),
     candidates: candidates.map(mapCandidate),
-    interviews: interviews.map(mapInterview),
+    invites: invites.map(mapInvite),
   };
 }
 
@@ -804,15 +875,21 @@ export function getAssessmentResults() {
 export function upsertAssessmentResult(input: AssessmentImportRecord) {
   const db = getDb();
   const now = new Date().toISOString();
-  const job = ensureAssessmentJob(db, input.role || 'Vacante sin definir', now);
-  const summary = buildAssessmentSummary(
-    input.scores,
-    resolveJobScoreProfile({
-      title: job.title,
-      department: job.department,
-      scoreProfileId: job.score_profile_id,
-    })
-  );
+
+  // Try to match an EXISTING job only — never auto-create one.
+  const matchedJob = input.role ? selectMatchingJob(db, input.role) : null;
+
+  const summary = matchedJob
+    ? buildAssessmentSummary(
+        input.scores,
+        resolveJobScoreProfile({
+          title: matchedJob.title,
+          department: matchedJob.department,
+          scoreProfileId: matchedJob.score_profile_id,
+        })
+      )
+    : buildAssessmentSummary(input.scores);
+
   db.prepare(
     `INSERT INTO assessment_results (
       id, candidate_name, candidate_email, role, completed_at, strategy_profile, personality_profile,
@@ -839,7 +916,7 @@ export function upsertAssessmentResult(input: AssessmentImportRecord) {
     input.id,
     input.candidateName,
     input.candidateEmail,
-    input.role,
+    input.role || '',
     input.completedAt,
     input.strategyProfile ?? null,
     input.personalityProfile ?? null,
@@ -856,19 +933,22 @@ export function upsertAssessmentResult(input: AssessmentImportRecord) {
     now
   );
 
-  syncCandidateFromAssessmentResult(
-    db,
-    {
-      ...input,
-      totalScore: summary.totalScore,
-      technicalScore: summary.technicalScore,
-      cognitiveScore: summary.cognitiveScore,
-      softSkillsScore: summary.softSkillsScore,
-      fitScores: summary.fitScores,
-      scoreProfileId: summary.scoreProfileId,
-    },
-    now
-  );
+  // Only auto-sync candidate if there's an existing matching job
+  if (matchedJob) {
+    syncCandidateFromAssessmentResult(
+      db,
+      {
+        ...input,
+        totalScore: summary.totalScore,
+        technicalScore: summary.technicalScore,
+        cognitiveScore: summary.cognitiveScore,
+        softSkillsScore: summary.softSkillsScore,
+        fitScores: summary.fitScores,
+        scoreProfileId: summary.scoreProfileId,
+      },
+      now
+    );
+  }
 
   return getAssessmentResults();
 }
@@ -888,6 +968,7 @@ export function createJob(
     owner?: string;
     status?: JobOpening['status'];
     scoreProfileId?: VacancyScoreProfileId;
+    jobDescription?: string;
   }
 ) {
   const db = getDb();
@@ -895,9 +976,65 @@ export function createJob(
   const id = `job-${crypto.randomUUID()}`;
   const scoreProfileId = input.scoreProfileId ?? inferVacancyScoreProfile({ title: input.title, department: input.department });
   db.prepare(
-    `INSERT INTO jobs (id, title, department, location, status, owner, posted_at, score_profile_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, input.title, input.department, input.location, input.status ?? 'active', input.owner ?? 'Administrador', now, scoreProfileId, now, now);
+    `INSERT INTO jobs (id, title, department, location, status, owner, posted_at, score_profile_id, job_description, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    input.title,
+    input.department,
+    input.location,
+    input.status ?? 'active',
+    input.owner ?? 'Administrador',
+    now,
+    scoreProfileId,
+    input.jobDescription?.trim() ?? '',
+    now,
+    now
+  );
+  return getWorkspaceBundle();
+}
+
+export function updateJob(input: {
+  id: string;
+  title?: string;
+  department?: string;
+  location?: string;
+  owner?: string;
+  status?: JobOpening['status'];
+  scoreProfileId?: VacancyScoreProfileId;
+  jobDescription?: string;
+}) {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const existing = getJobById(db, input.id);
+
+  if (!existing) {
+    throw new Error('Job not found');
+  }
+
+  db.prepare(
+    `UPDATE jobs
+     SET title = ?,
+         department = ?,
+         location = ?,
+         status = ?,
+         owner = ?,
+         score_profile_id = ?,
+         job_description = ?,
+         updated_at = ?
+     WHERE id = ?`
+  ).run(
+    input.title?.trim() || existing.title,
+    input.department?.trim() || existing.department,
+    input.location?.trim() || existing.location,
+    input.status ?? existing.status,
+    input.owner?.trim() || existing.owner,
+    input.scoreProfileId ?? existing.score_profile_id,
+    typeof input.jobDescription === 'string' ? input.jobDescription.trim() : existing.job_description ?? '',
+    now,
+    input.id
+  );
+
   return getWorkspaceBundle();
 }
 
@@ -938,6 +1075,7 @@ export function createCandidate(input: CandidateResult) {
       owner: input.recruiter || 'Administrador',
       posted_at: input.appliedAt || now,
       score_profile_id: summary.scoreProfileId,
+      job_description: '',
     },
     summary,
     status: input.status,
@@ -961,9 +1099,9 @@ export function createCandidate(input: CandidateResult) {
     `INSERT INTO candidates (
       id, name, email, vacancy_id, vacancy, department, total_score, technical_score, cognitive_score, soft_skills_score,
       fit_scores, status, pipeline_stage, applied_at, updated_at, location, recruiter, source, assessment_id,
-      strategy_profile, personality_profile, raw_scores, hired_at, score_profile_id, shortlist_manual,
+      strategy_profile, personality_profile, raw_scores, hired_at, score_profile_id, phone, recruiter_notes, shortlist_manual, shortlist_order,
       vacancy_recommendation, vacancy_recommendation_source, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     input.id,
     input.name,
@@ -989,11 +1127,17 @@ export function createCandidate(input: CandidateResult) {
     input.rawScores ? JSON.stringify(input.rawScores) : null,
     input.hiredAt ?? null,
     summary.scoreProfileId,
+    input.phone?.trim() || null,
+    input.recruiterNotes?.trim() || null,
     input.shortlistManual ? 1 : 0,
+    input.shortlistManual ? (input.shortlistOrder ?? getOrderedShortlistCandidateIds(db, input.vacancyId).length + 1) : null,
     recommendation.recommendation,
     input.vacancyRecommendationSource === 'manual' ? 'manual' : recommendation.recommendationSource,
     now
   );
+  if (input.shortlistManual) {
+    applyShortlistOrdering(db, getOrderedShortlistCandidateIds(db, input.vacancyId));
+  }
   if (input.assessmentId) {
     db.prepare(
       `UPDATE assessment_results
@@ -1008,7 +1152,11 @@ export function updateCandidateProgress(input: {
   id: string;
   status: CandidateStatus;
   pipelineStage: CandidatePipelineStage;
+  vacancyId?: string;
+  phone?: string;
+  recruiterNotes?: string;
   shortlistManual?: boolean;
+  shortlistOrder?: number;
   vacancyRecommendation?: VacancyRecommendation;
   vacancyRecommendationSource?: 'system' | 'manual';
 }) {
@@ -1017,7 +1165,7 @@ export function updateCandidateProgress(input: {
   const existing = db.prepare(
     `SELECT id, name, email, vacancy_id, vacancy, department, total_score, technical_score, cognitive_score, soft_skills_score,
             fit_scores, status, pipeline_stage, applied_at, updated_at, location, recruiter, source, assessment_id,
-            strategy_profile, personality_profile, raw_scores, hired_at, score_profile_id, shortlist_manual,
+            strategy_profile, personality_profile, raw_scores, hired_at, score_profile_id, phone, recruiter_notes, shortlist_manual, shortlist_order,
             vacancy_recommendation, vacancy_recommendation_source
      FROM candidates
      WHERE id = ?`
@@ -1027,19 +1175,104 @@ export function updateCandidateProgress(input: {
     throw new Error('Candidate not found');
   }
 
+  const nextJob = input.vacancyId && input.vacancyId !== existing.vacancy_id ? getJobById(db, input.vacancyId) : undefined;
+  const vacancyId = nextJob?.id ?? existing.vacancy_id;
+  const vacancyTitle = nextJob?.title ?? existing.vacancy;
+  const vacancyDepartment = nextJob?.department ?? existing.department;
+  const nextLocation = existing.location || nextJob?.location || 'Sin ubicación';
   const nextStatus = resolveCandidateStatus(input.status, input.pipelineStage);
-  const nextShortlistManual = typeof input.shortlistManual === 'boolean' ? input.shortlistManual : Boolean(existing.shortlist_manual);
-  const nextRecommendation = input.vacancyRecommendation ?? existing.vacancy_recommendation ?? null;
+  const recommendationSummary = summarizeCandidateForJob({
+    job: nextJob ?? {
+      id: existing.vacancy_id,
+      title: existing.vacancy,
+      department: existing.department,
+      location: nextLocation,
+      status: 'pending',
+      owner: existing.recruiter,
+      posted_at: existing.applied_at,
+      score_profile_id: (existing.score_profile_id as VacancyScoreProfileId | null) ?? 'generalist',
+      job_description: '',
+    },
+    rawScores: safeParseJson<Record<string, number>>(existing.raw_scores),
+    technicalScore: existing.technical_score,
+    cognitiveScore: existing.cognitive_score,
+    softSkillsScore: existing.soft_skills_score,
+  });
+  const requestedShortlistOrder =
+    typeof input.shortlistOrder === 'number' && Number.isFinite(input.shortlistOrder)
+      ? Math.max(1, Math.round(input.shortlistOrder))
+      : undefined;
+  const nextShortlistManual =
+    requestedShortlistOrder != null
+      ? true
+      : typeof input.shortlistManual === 'boolean'
+        ? input.shortlistManual
+        : Boolean(existing.shortlist_manual);
+  const derivedRecommendation = deriveVacancyRecommendation({
+    candidateId: existing.id,
+    name: existing.name,
+    email: existing.email,
+    job: nextJob ?? {
+      id: existing.vacancy_id,
+      title: existing.vacancy,
+      department: existing.department,
+      location: nextLocation,
+      status: 'pending',
+      owner: existing.recruiter,
+      posted_at: existing.applied_at,
+      score_profile_id: recommendationSummary.scoreProfileId,
+      job_description: '',
+    },
+    summary: recommendationSummary,
+    status: nextStatus,
+    pipelineStage: input.pipelineStage,
+    shortlistManual: nextShortlistManual,
+    source: existing.source,
+    appliedAt: existing.applied_at,
+    updatedAt: now,
+    location: nextLocation,
+    recruiter: existing.recruiter,
+    assessmentId: existing.assessment_id,
+    strategyProfile: existing.strategy_profile,
+    personalityProfile: existing.personality_profile,
+    rawScores: safeParseJson<Record<string, number>>(existing.raw_scores),
+    hiredAt: existing.hired_at,
+    vacancyRecommendation: input.vacancyRecommendation ?? null,
+    vacancyRecommendationSource: input.vacancyRecommendation ? 'manual' : undefined,
+  });
+  const nextRecommendation = derivedRecommendation.recommendation;
   const recommendationSource =
     input.vacancyRecommendation != null || input.vacancyRecommendationSource === 'manual'
       ? 'manual'
-      : (existing.vacancy_recommendation_source ?? 'system');
+      : (existing.vacancy_recommendation_source ?? derivedRecommendation.recommendationSource);
+  const remainingShortlistIds = getOrderedShortlistCandidateIds(db, vacancyId, input.id);
+  const preservedIndex =
+    Boolean(existing.shortlist_manual) && typeof existing.shortlist_order === 'number' && existing.shortlist_order > 0
+      ? Math.min(existing.shortlist_order - 1, remainingShortlistIds.length)
+      : remainingShortlistIds.length;
+  const targetIndex =
+    requestedShortlistOrder != null
+      ? Math.min(requestedShortlistOrder - 1, remainingShortlistIds.length)
+      : preservedIndex;
+  const nextShortlistOrder = nextShortlistManual ? targetIndex + 1 : null;
+  const orderedShortlistIds = [...remainingShortlistIds];
+
+  if (nextShortlistManual) {
+    orderedShortlistIds.splice(targetIndex, 0, input.id);
+  }
 
   db.prepare(
     `UPDATE candidates
      SET status = ?,
          pipeline_stage = ?,
+         vacancy_id = ?,
+         vacancy = ?,
+         department = ?,
+         score_profile_id = ?,
+         phone = ?,
+         recruiter_notes = ?,
          shortlist_manual = ?,
+         shortlist_order = ?,
          vacancy_recommendation = ?,
          vacancy_recommendation_source = ?,
          hired_at = CASE
@@ -1051,7 +1284,14 @@ export function updateCandidateProgress(input: {
   ).run(
     nextStatus,
     input.pipelineStage,
+    vacancyId,
+    vacancyTitle,
+    vacancyDepartment,
+    recommendationSummary.scoreProfileId,
+    typeof input.phone === 'string' ? input.phone.trim() || null : existing.phone,
+    typeof input.recruiterNotes === 'string' ? input.recruiterNotes.trim() || null : existing.recruiter_notes,
     nextShortlistManual ? 1 : 0,
+    nextShortlistOrder,
     nextRecommendation,
     recommendationSource,
     nextStatus,
@@ -1061,43 +1301,32 @@ export function updateCandidateProgress(input: {
     input.id
   );
 
+  applyShortlistOrdering(db, orderedShortlistIds);
+
   return getWorkspaceBundle();
 }
 
-export function createInterview(input: UpcomingInterview) {
+export function createInvite(input: AssessmentInvite) {
   const db = getDb();
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO interviews (
-      id, candidate_id, candidate_name, vacancy_id, vacancy, department, scheduled_at, interviewer, status, format, created_at, updated_at
+    `INSERT INTO assessment_invites (
+      id, candidate_name, candidate_email, candidate_phone, vacancy_id, vacancy, department, recruiter, expires_at, status, created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     input.id,
-    input.candidateId,
     input.candidateName,
+    input.candidateEmail,
+    input.candidatePhone?.trim() || null,
     input.vacancyId,
     input.vacancy,
     input.department,
-    input.scheduledAt,
-    input.interviewer,
+    input.recruiter,
+    input.expiresAt,
     input.status,
-    input.format,
     now,
     now
   );
-  db.prepare(
-    `UPDATE candidates
-     SET pipeline_stage = CASE
-         WHEN pipeline_stage IN ('applied', 'screening', 'assessment') THEN 'interview'
-         ELSE pipeline_stage
-       END,
-       status = CASE
-         WHEN status = 'pending' THEN 'active'
-         ELSE status
-       END,
-       updated_at = ?
-     WHERE id = ?`
-  ).run(now, input.candidateId);
   return getWorkspaceBundle();
 }
 
@@ -1168,6 +1397,24 @@ export function endRecruiterAccessSession(input: {
   ).run(`event-${crypto.randomUUID()}`, input.sessionId, input.name, input.email, now, input.userAgent ?? null, now);
 
   return { ok: true as const };
+}
+
+export function isRecruiterSessionActive(sessionId: string, email?: string | null) {
+  const normalizedSessionId = sessionId.trim();
+  if (!normalizedSessionId) return false;
+
+  const row = getDb()
+    .prepare(
+      `SELECT session_id, recruiter_email, status
+       FROM recruiter_access_sessions
+       WHERE session_id = ?
+       LIMIT 1`
+    )
+    .get(normalizedSessionId) as { recruiter_email: string; status: string } | undefined;
+
+  if (!row || row.status !== 'active') return false;
+  if (email?.trim() && row.recruiter_email.toLowerCase() !== email.trim().toLowerCase()) return false;
+  return true;
 }
 
 export function recordRecruiterActivityEvent(input: {
@@ -1248,4 +1495,15 @@ export function getRecruiterAuditBundle(): RecruiterAuditBundle {
     recentClosures: recentClosures.map(mapRecruiterAuditSession),
     recentEvents: recentEvents.map(mapRecruiterAuditEvent),
   };
+}
+
+export function updateCandidateAIMatch(candidateId: string, aiMatchScore: number, aiMatchReason: string) {
+  const db = getDb();
+  db.prepare(
+    `UPDATE candidates
+     SET ai_match_score = ?, ai_match_reason = ?, updated_at = ?
+     WHERE id = ?`
+  ).run(aiMatchScore, aiMatchReason, new Date().toISOString(), candidateId);
+
+  return { success: true };
 }

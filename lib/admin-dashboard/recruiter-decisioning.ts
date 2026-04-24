@@ -31,12 +31,13 @@ export type CandidateDecisionSummary = {
 };
 
 type ScoreSnapshot = {
-  technical: number;
-  cognitive: number;
-  behavioral: number;
-  communication: number;
+  memory: number;
   leadership: number;
-  culture: number;
+  problemSolving: number;
+  ethics: number;
+  risk: number;
+  network: number;
+  strategy: number;
   total: number;
 };
 
@@ -99,22 +100,24 @@ function clamp(value: number) {
 }
 
 function normalizeScores(candidate: CandidateResult): ScoreSnapshot {
-  const fit = candidate.fitScores;
-  const technical = fit?.technicalMatch ?? candidate.technicalScore ?? 0;
-  const cognitive = fit?.cognitivePerformance ?? candidate.cognitiveScore ?? 0;
-  const behavioral = fit?.behavioralFit ?? candidate.softSkillsScore ?? 0;
-  const communication = fit?.communication ?? candidate.softSkillsScore ?? 0;
-  const leadership = fit?.leadershipPotential ?? averageValues([behavioral, communication]);
-  const culture = fit?.cultureFit ?? behavioral;
-  const total = candidate.totalScore ?? averageValues([technical, cognitive, behavioral]);
+  const raw = candidate.rawScores;
+  const memory = raw?.memory ?? 0;
+  const leadership = raw?.leadership ?? 0;
+  const problemSolving = raw?.problemSolving ?? 0;
+  const ethics = raw?.ethics ?? 0;
+  const risk = raw?.risk ?? 0;
+  const network = raw?.network ?? 0;
+  const strategy = raw?.strategy ?? 0;
+  const total = candidate.totalScore ?? Math.round(averageValues([memory, leadership, problemSolving, ethics, risk, network, strategy]));
 
   return {
-    technical: clamp(technical),
-    cognitive: clamp(cognitive),
-    behavioral: clamp(behavioral),
-    communication: clamp(communication),
+    memory: clamp(memory),
     leadership: clamp(leadership),
-    culture: clamp(culture),
+    problemSolving: clamp(problemSolving),
+    ethics: clamp(ethics),
+    risk: clamp(risk),
+    network: clamp(network),
+    strategy: clamp(strategy),
     total: clamp(total),
   };
 }
@@ -125,57 +128,85 @@ function averageValues(values: number[]) {
 }
 
 function collectStrengths(scores: ScoreSnapshot) {
+  const mapArr = [
+    { name: 'Memoria', score: scores.memory },
+    { name: 'Gestión de equipos', score: scores.leadership },
+    { name: 'Resolución de crisis', score: scores.problemSolving },
+    { name: 'Ética bajo presión', score: scores.ethics },
+    { name: 'Gestión de riesgo', score: scores.risk },
+    { name: 'Multitarea', score: scores.network },
+    { name: 'Estrategia', score: scores.strategy },
+  ];
+  const sorted = [...mapArr].sort((a, b) => b.score - a.score);
   const strengths: string[] = [];
-  if (scores.technical >= 78) strengths.push(`Ajuste técnico sólido (${scores.technical}/100).`);
-  if (scores.cognitive >= 78) strengths.push(`Buen criterio cognitivo (${scores.cognitive}/100).`);
-  if (scores.behavioral >= 76) strengths.push(`Señal conductual consistente (${scores.behavioral}/100).`);
-  if (scores.communication >= 76) strengths.push(`Comunicación clara y usable (${scores.communication}/100).`);
-  if (scores.leadership >= 76) strengths.push(`Potencial de coordinación visible (${scores.leadership}/100).`);
-  if (scores.culture >= 76) strengths.push(`Ajuste cultural favorable (${scores.culture}/100).`);
+
+  for (const s of sorted) {
+    if (s.score >= 70) strengths.push(`Alta solidez en ${s.name} (${s.score}/100).`);
+    else if (s.score >= 55) strengths.push(`Base sólida en ${s.name} (${s.score}/100).`);
+    else if (s.score >= 45 && strengths.length === 0) {
+      strengths.push(`${s.name} es su área más alta (${s.score}/100).`);
+    }
+  }
   return strengths.slice(0, 3);
 }
 
 function collectRisks(scores: ScoreSnapshot) {
+  const mapArr = [
+    { name: 'Memoria', score: scores.memory, msg: 'Retención y reconstrucción de patrones débiles' },
+    { name: 'Gestión de equipos', score: scores.leadership, msg: 'Criterio de asignación y distribución de carga bajo' },
+    { name: 'Resolución de crisis', score: scores.problemSolving, msg: 'Respuesta en escenarios críticos a validar' },
+    { name: 'Ética bajo presión', score: scores.ethics, msg: 'Criterio ético a profundizar en entrevista' },
+    { name: 'Gestión de riesgo', score: scores.risk, msg: 'Control de riesgo a validar bajo incertidumbre' },
+    { name: 'Multitarea', score: scores.network, msg: 'Atención dividida a reforzar con múltiples frentes' },
+    { name: 'Estrategia', score: scores.strategy, msg: 'Priorización estratégica a validar' },
+  ];
+  const sorted = [...mapArr].sort((a, b) => a.score - b.score);
   const risks: string[] = [];
-  if (scores.technical <= 54) risks.push(`Debe validar base técnica (${scores.technical}/100).`);
-  if (scores.cognitive <= 54) risks.push(`Conviene validar estructura y criterio (${scores.cognitive}/100).`);
-  if (scores.behavioral <= 54) risks.push(`Hay dudas sobre respuesta conductual (${scores.behavioral}/100).`);
-  if (scores.communication <= 54) risks.push(`La comunicación necesita contraste en vivo (${scores.communication}/100).`);
-  if (scores.leadership <= 54) risks.push(`Priorización y coordinación todavía débiles (${scores.leadership}/100).`);
-  if (scores.culture <= 54) risks.push(`Puede requerir validación de encaje con el equipo (${scores.culture}/100).`);
+
+  for (const r of sorted) {
+    if (r.score < 35) {
+      risks.push(`[${r.name}] ${r.msg} (${r.score}/100).`);
+    } else if (r.score < 50 && risks.length < 2) {
+      risks.push(`[${r.name}] Área de desarrollo: ${r.msg.toLowerCase()} (${r.score}/100).`);
+    }
+  }
+  if (risks.length === 0 && sorted[0].score < 60) {
+    risks.push(`Punto a vigilar: ${sorted[0].name.toLowerCase()} (${sorted[0].score}/100).`);
+  }
   return risks.slice(0, 3);
 }
+
 
 function buildPrompts(scores: ScoreSnapshot): InterviewPrompt[] {
   const prompts: InterviewPrompt[] = [];
 
-  if (scores.communication <= 65) {
+  if (scores.problemSolving <= 65) {
     prompts.push({
-      title: 'Claridad de comunicación',
+      title: 'Claridad en crisis',
       question: 'Pídele que explique una situación compleja en tres pasos: contexto, acción y resultado.',
       signal: 'Esperamos orden, síntesis y mensajes accionables sin perder información clave.',
     });
   }
 
-  if (scores.behavioral <= 65 || scores.culture <= 65) {
+  if (scores.ethics <= 65) {
     prompts.push({
-      title: 'Trabajo con otros',
-      question: 'Pídele un ejemplo real de conflicto o desacuerdo dentro de un equipo y cómo lo resolvió.',
-      signal: 'Buscamos empatía, responsabilidad compartida y capacidad de bajar tensión.',
+      title: 'Criterio ético',
+      question: 'Pídele un ejemplo donde haya tenido que decidir entre seguir una regla y proteger a una persona.',
+      signal: 'Buscamos consistencia ética y capacidad de fundamentar la decisión.',
     });
   }
 
-  if (scores.technical <= 65) {
+  if (scores.strategy <= 65) {
     prompts.push({
-      title: 'Profundidad técnica',
-      question: 'Pídele que detalle una decisión técnica reciente: opciones, criterio y trade-offs elegidos.',
-      signal: 'Debe justificar decisiones con lógica y no solo con resultados superficiales.',
+      title: 'Visión estratégica',
+      question: 'Pídele que priorice 3 iniciativas con recursos limitados y explique su criterio.',
+      signal: 'Debe justificar decisiones con lógica y no solo con intuición.',
     });
   }
 
-  if (scores.cognitive <= 65) {
+  if (scores.memory <= 65) {
     prompts.push({
-      title: 'Estructura bajo presión',
+      title: 'Retención y patrones',
       question: 'Dale un mini caso ambiguo y pídele que priorice qué haría primero, segundo y tercero.',
       signal: 'Buscamos secuencia lógica, foco y descarte de ruido.',
     });
@@ -204,7 +235,7 @@ function resolveSuggestedStage(current: CandidatePipelineStage, decision: Recrui
   if (decision === 'decline') return current;
   if (decision === 'advance') {
     if (current === 'final-review' || current === 'hired') return current;
-    return 'interview';
+    return 'final-review';
   }
   if (current === 'applied') return 'screening';
   return current;
@@ -221,40 +252,48 @@ export function buildCandidateDecision(candidate: CandidateResult): CandidateDec
   const scores = normalizeScores(candidate);
   const strengths = collectStrengths(scores);
   const risks = collectRisks(scores);
-  const lowSignals = [scores.technical, scores.cognitive, scores.behavioral, scores.communication].filter((value) => value <= 54).length;
-  const strongSignals = [scores.technical, scores.cognitive, scores.behavioral, scores.communication, scores.leadership, scores.culture].filter((value) => value >= 76).length;
+  const allScores = [scores.memory, scores.leadership, scores.problemSolving, scores.ethics, scores.risk, scores.network, scores.strategy];
+  const criticalLows = allScores.filter((value) => value < 35).length;
+  const lowSignals = allScores.filter((value) => value < 45).length;
+  const strongSignals = allScores.filter((value) => value >= 70).length;
+  const moderateSignals = allScores.filter((value) => value >= 55).length;
 
   let decision: RecruiterDecision = 'review';
   if (candidate.status === 'rejected') {
     decision = 'decline';
-  } else if (scores.total >= 78 && lowSignals === 0 && scores.communication >= 60 && scores.behavioral >= 60) {
+  } else if (candidate.status === 'hired' || candidate.status === 'shortlisted') {
+    // Respect existing recruiter decisions
     decision = 'advance';
-  } else if (scores.total < 52 || lowSignals >= 3) {
+  } else if (scores.total >= 62 && criticalLows === 0) {
+    // Solid profile: good overall and no critical failures
+    decision = 'advance';
+  } else if (scores.total >= 55 && strongSignals >= 2 && criticalLows === 0) {
+    // Specialist profile: clear strengths that compensate moderate total
+    decision = 'advance';
+  } else if (scores.total < 30 || criticalLows >= 4) {
+    // Only decline on genuinely weak profiles
+    decision = 'decline';
+  } else if (scores.total < 40 && lowSignals >= 4) {
+    // Low total combined with many weak areas
     decision = 'decline';
   }
+  // Everything else stays as 'review' — the largest and most useful bucket
 
-  const readinessBase = scores.total * 0.55 + scores.communication * 0.15 + scores.behavioral * 0.15 + scores.cognitive * 0.15;
-  const readinessScore = clamp(
-    readinessBase +
-      (decision === 'advance' ? 8 : 0) -
-      (decision === 'decline' ? 12 : 0) +
-      strongSignals * 1.5 -
-      lowSignals * 4
-  );
+  const readinessScore = scores.total;
 
   const rationale =
     decision === 'advance'
-      ? `El perfil tiene suficiente consistencia para pasar a entrevista: score total ${scores.total}/100 con señales útiles en ${strengths.length ? strengths[0].toLowerCase() : 'múltiples dimensiones clave'}.`
+      ? `Avanzar. Perfil sólido: score total ${scores.total}/100${strongSignals > 0 ? `, con ${strongSignals} área${strongSignals > 1 ? 's' : ''} destacada${strongSignals > 1 ? 's' : ''}` : ''}. Listo para entrevista enfocada.`
       : decision === 'decline'
-        ? `Las señales actuales no alcanzan para avanzar: score total ${scores.total}/100 y varios frentes necesitan validación fuerte antes de mover el proceso.`
-        : `Hay señales interesantes, pero todavía conviene revisar antes de decidir: score total ${scores.total}/100 con mezcla de fortalezas y riesgos.`;
+        ? `No avanzar. Score total ${scores.total}/100 con ${criticalLows} área${criticalLows !== 1 ? 's' : ''} crítica${criticalLows !== 1 ? 's' : ''} (<35). Requiere desarrollo antes de avanzar.`
+        : `Revisar. Score total ${scores.total}/100. ${moderateSignals > 0 ? `Tiene ${moderateSignals} área${moderateSignals > 1 ? 's' : ''} con base sólida.` : 'Conviene'} validar en entrevista los puntos más bajos.`;
 
   const nextStep =
     decision === 'advance'
-      ? 'Mover a shortlist y abrir entrevista estructurada con foco en confirmación.'
+      ? 'Mover a shortlist y agendar validación final de encaje cultural.'
       : decision === 'decline'
-        ? 'No avanzar por ahora o pedir evidencia adicional solo si la vacante es difícil de cubrir.'
-        : 'Mantener en revisión corta y validar los puntos débiles en una entrevista breve o screening adicional.';
+        ? 'Mantener en reserva. Puede reconsiderarse si el rol tolera mayor curva de aprendizaje.'
+        : 'Agendar entrevista estructurada para profundizar en las áreas más bajas.';
 
   const recommendation = resolveVacancyRecommendation(candidate, decision);
 
@@ -306,6 +345,13 @@ export function sortCandidatesForDecision(candidates: CandidateResult[]) {
     }
     if (Boolean(left.shortlistManual) !== Boolean(right.shortlistManual)) {
       return left.shortlistManual ? -1 : 1;
+    }
+    if (Boolean(left.shortlistManual) && Boolean(right.shortlistManual)) {
+      const leftOrder = left.shortlistOrder ?? Number.MAX_SAFE_INTEGER;
+      const rightOrder = right.shortlistOrder ?? Number.MAX_SAFE_INTEGER;
+      if (leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
+      }
     }
     const recommendationPriority: Record<VacancyRecommendation, number> = {
       recommended: 0,

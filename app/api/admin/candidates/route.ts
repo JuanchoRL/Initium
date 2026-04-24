@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { createCandidate, updateCandidateProgress } from '@/lib/server/admin-db';
+import { requireAdminSession } from '@/lib/server/admin-auth';
 import type { CandidatePipelineStage, CandidateResult, CandidateStatus, VacancyRecommendation } from '@/types/admin-dashboard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
+  const unauthorized = requireAdminSession(request);
+  if (unauthorized) return unauthorized;
+
   let body: CandidateResult;
   try {
     body = (await request.json()) as CandidateResult;
@@ -30,11 +34,18 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const unauthorized = requireAdminSession(request);
+  if (unauthorized) return unauthorized;
+
   let body: {
     id?: string;
     status?: CandidateStatus;
     pipelineStage?: CandidatePipelineStage;
+    vacancyId?: string;
+    phone?: string;
+    recruiterNotes?: string;
     shortlistManual?: boolean;
+    shortlistOrder?: number;
     vacancyRecommendation?: VacancyRecommendation;
   };
   try {
@@ -42,7 +53,11 @@ export async function PATCH(request: NextRequest) {
       id?: string;
       status?: CandidateStatus;
       pipelineStage?: CandidatePipelineStage;
+      vacancyId?: string;
+      phone?: string;
+      recruiterNotes?: string;
       shortlistManual?: boolean;
+      shortlistOrder?: number;
       vacancyRecommendation?: VacancyRecommendation;
     };
   } catch {
@@ -59,7 +74,11 @@ export async function PATCH(request: NextRequest) {
         id: body.id,
         status: body.status,
         pipelineStage: body.pipelineStage,
+        vacancyId: body.vacancyId,
+        phone: body.phone,
+        recruiterNotes: body.recruiterNotes,
         shortlistManual: typeof body.shortlistManual === 'boolean' ? body.shortlistManual : undefined,
+        shortlistOrder: typeof body.shortlistOrder === 'number' ? body.shortlistOrder : undefined,
         vacancyRecommendation: body.vacancyRecommendation,
         vacancyRecommendationSource: body.vacancyRecommendation ? 'manual' : undefined,
       }),

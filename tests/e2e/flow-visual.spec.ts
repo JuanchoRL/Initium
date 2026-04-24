@@ -34,7 +34,7 @@ test.describe('visual regression - flujo base', () => {
 
   test('consent screen', async ({ page }) => {
     await goToConsent(page);
-    await expect(page.locator('div.min-h-screen').first()).toHaveScreenshot('consent-screen.png', {
+    await expect(page.getByTestId('consent-screen')).toHaveScreenshot('consent-screen.png', {
       animations: 'disabled',
       maxDiffPixelRatio: 0.02,
     });

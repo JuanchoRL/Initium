@@ -73,6 +73,7 @@ export function TaskCard({ task }: TaskCardProps) {
 
   return (
     <div
+      id={`task-${task.id}`}
       ref={setNodeRef}
       style={style}
       {...listeners}

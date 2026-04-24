@@ -11,6 +11,7 @@ import type { CandidatePipelineStage, CandidateStatus, JobOpening } from '@/type
 export type AddCandidatePayload = {
   name: string;
   email: string;
+  phone: string;
   vacancyId: string;
   location: string;
   status: CandidateStatus;
@@ -21,20 +22,19 @@ export type AddCandidatePayload = {
 };
 
 const stages: Array<{ value: CandidatePipelineStage; label: string }> = [
-  { value: 'applied', label: 'Applied' },
-  { value: 'screening', label: 'Screening' },
-  { value: 'assessment', label: 'Assessment' },
-  { value: 'interview', label: 'Interview' },
-  { value: 'final-review', label: 'Final Review' },
-  { value: 'hired', label: 'Hired' },
+  { value: 'applied', label: 'Aplicado' },
+  { value: 'screening', label: 'Filtro inicial' },
+  { value: 'assessment', label: 'Evaluación' },
+  { value: 'final-review', label: 'Revisión final' },
+  { value: 'hired', label: 'Contratado' },
 ];
 
 const statuses: Array<{ value: CandidateStatus; label: string }> = [
-  { value: 'pending', label: 'Pending' },
-  { value: 'active', label: 'Active' },
-  { value: 'shortlisted', label: 'Shortlisted' },
-  { value: 'hired', label: 'Hired' },
-  { value: 'rejected', label: 'Rejected' },
+  { value: 'pending', label: 'Pendiente' },
+  { value: 'active', label: 'Activo' },
+  { value: 'shortlisted', label: 'Shortlist' },
+  { value: 'hired', label: 'Contratado' },
+  { value: 'rejected', label: 'No avanzar' },
 ];
 
 const toNullableNumber = (value: FormDataEntryValue | null) => {
@@ -85,6 +85,7 @@ export function AddCandidateModal({
             onCreate({
               name: String(formData.get('name') ?? ''),
               email: String(formData.get('email') ?? ''),
+              phone: String(formData.get('phone') ?? ''),
               vacancyId: String(formData.get('vacancyId') ?? ''),
               location: String(formData.get('location') ?? ''),
               status: String(formData.get('status') ?? 'pending') as CandidateStatus,
@@ -97,7 +98,7 @@ export function AddCandidateModal({
             event.currentTarget.reset();
           }}
         >
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-3">
             <div className="space-y-2">
               <label htmlFor="candidate-name" className="text-sm font-medium text-slate-700 dark:text-slate-300">Nombre</label>
               <Input id="candidate-name" name="name" required placeholder="Nombre del candidato" />
@@ -105,6 +106,10 @@ export function AddCandidateModal({
             <div className="space-y-2">
               <label htmlFor="candidate-email" className="text-sm font-medium text-slate-700 dark:text-slate-300">Email</label>
               <Input id="candidate-email" name="email" type="email" required placeholder="correo@empresa.com" />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="candidate-phone" className="text-sm font-medium text-slate-700 dark:text-slate-300">Teléfono</label>
+              <Input id="candidate-phone" name="phone" placeholder="+598 99 000 000" />
             </div>
           </div>
 

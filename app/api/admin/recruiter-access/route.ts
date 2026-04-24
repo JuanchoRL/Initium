@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { endRecruiterAccessSession, startRecruiterAccessSession } from '@/lib/server/admin-db';
+import { requireAdminSession } from '@/lib/server/admin-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -39,6 +40,9 @@ export async function POST(request: NextRequest) {
   if (!body.sessionId?.trim()) {
     return NextResponse.json({ error: 'sessionId is required for logout' }, { status: 400 });
   }
+
+  const unauthorized = requireAdminSession(request);
+  if (unauthorized) return unauthorized;
 
   return NextResponse.json(
     endRecruiterAccessSession({
