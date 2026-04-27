@@ -97,6 +97,7 @@ type InviteRow = {
 
 type AssessmentResultRow = {
   id: string;
+  invite_id: string | null;
   candidate_name: string;
   candidate_email: string;
   role: string;
@@ -220,6 +221,7 @@ function createDatabase() {
 
     CREATE TABLE IF NOT EXISTS assessment_invites (
       id TEXT PRIMARY KEY,
+      invite_id TEXT,
       candidate_name TEXT NOT NULL,
       candidate_email TEXT NOT NULL,
       candidate_phone TEXT,
@@ -313,6 +315,7 @@ function createDatabase() {
   ensureColumn(db, 'candidates', 'ai_match_score', 'INTEGER');
   ensureColumn(db, 'candidates', 'ai_match_reason', 'TEXT');
   ensureColumn(db, 'assessment_results', 'score_profile_id', 'TEXT');
+  ensureColumn(db, 'assessment_results', 'invite_id', 'TEXT');
   seedJobScoreProfiles(db);
 
   return db;
@@ -772,12 +775,14 @@ function mapInvite(row: InviteRow): AssessmentInvite {
     expiresAt: row.expires_at,
     createdAt: row.created_at,
     status: row.status,
+    assessmentUrl: `/?invite=${encodeURIComponent(row.id)}`,
   };
 }
 
 function mapAssessmentResult(row: AssessmentResultRow): AssessmentImportRecord {
   return {
     id: row.id,
+    inviteId: row.invite_id,
     candidateName: row.candidate_name,
     candidateEmail: row.candidate_email,
     role: row.role,
@@ -862,7 +867,7 @@ export function getWorkspaceBundle(): AdminWorkspace {
 export function getAssessmentResults() {
   const db = getDb();
   const rows = db.prepare(`
-    SELECT id, candidate_name, candidate_email, role, completed_at, strategy_profile, personality_profile,
+    SELECT id, invite_id, candidate_name, candidate_email, role, completed_at, strategy_profile, personality_profile,
            scores, metrics, total_score, technical_score, cognitive_score, soft_skills_score, fit_scores,
            imported_candidate_id, score_profile_id
     FROM assessment_results
@@ -876,8 +881,40 @@ export function upsertAssessmentResult(input: AssessmentImportRecord) {
   const db = getDb();
   const now = new Date().toISOString();
 
-  // Try to match an EXISTING job only — never auto-create one.
-  const matchedJob = input.role ? selectMatchingJob(db, input.role) : null;
+  const invite = input.inviteId?.trim()
+    ? (db.prepare(
+        `SELECT id, candidate_name, candidate_email, candidate_phone, vacancy_id, vacancy, department, recruiter, expires_at, created_at, status
+         FROM assessment_invites
+         WHERE id = ?
+         LIMIT 1`
+      ).get(input.inviteId.trim()) as InviteRow | undefined)
+    : undefined;
+
+  if (input.inviteId && !invite) {
+    throw new Error('Assessment invite not found');
+  }
+
+  if (invite) {
+    if (invite.status === 'cancelled' || invite.status === 'expired') {
+      throw new Error('Assessment invite is no longer active');
+    }
+    if (new Date(invite.expires_at).getTime() < Date.now()) {
+      db.prepare(
+        `UPDATE assessment_invites
+         SET status = 'expired', updated_at = ?
+         WHERE id = ?`
+      ).run(now, invite.id);
+      throw new Error('Assessment invite expired');
+    }
+    if (normalizeLookup(invite.candidate_email) !== normalizeLookup(input.candidateEmail)) {
+      throw new Error('Assessment invite email does not match candidate email');
+    }
+  }
+
+  const invitedJob = invite ? getJobById(db, invite.vacancy_id) : undefined;
+  // Try to match an EXISTING job only — never auto-create one for public results.
+  const matchedJob = invitedJob ?? (input.role ? selectMatchingJob(db, input.role) : null);
+  const resolvedRole = invite?.vacancy || matchedJob?.title || input.role || '';
 
   const summary = matchedJob
     ? buildAssessmentSummary(
@@ -892,11 +929,12 @@ export function upsertAssessmentResult(input: AssessmentImportRecord) {
 
   db.prepare(
     `INSERT INTO assessment_results (
-      id, candidate_name, candidate_email, role, completed_at, strategy_profile, personality_profile,
+      id, invite_id, candidate_name, candidate_email, role, completed_at, strategy_profile, personality_profile,
       scores, metrics, total_score, technical_score, cognitive_score, soft_skills_score, fit_scores,
       imported_candidate_id, score_profile_id, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
+      invite_id = COALESCE(excluded.invite_id, assessment_results.invite_id),
       candidate_name = excluded.candidate_name,
       candidate_email = excluded.candidate_email,
       role = excluded.role,
@@ -914,9 +952,10 @@ export function upsertAssessmentResult(input: AssessmentImportRecord) {
       updated_at = excluded.updated_at`
   ).run(
     input.id,
+    invite?.id ?? input.inviteId ?? null,
     input.candidateName,
     input.candidateEmail,
-    input.role || '',
+    resolvedRole,
     input.completedAt,
     input.strategyProfile ?? null,
     input.personalityProfile ?? null,
@@ -939,6 +978,8 @@ export function upsertAssessmentResult(input: AssessmentImportRecord) {
       db,
       {
         ...input,
+        inviteId: invite?.id ?? input.inviteId,
+        role: resolvedRole,
         totalScore: summary.totalScore,
         technicalScore: summary.technicalScore,
         cognitiveScore: summary.cognitiveScore,
@@ -950,7 +991,40 @@ export function upsertAssessmentResult(input: AssessmentImportRecord) {
     );
   }
 
+  if (invite) {
+    db.prepare(
+      `UPDATE assessment_invites
+       SET status = 'completed', updated_at = ?
+       WHERE id = ?`
+    ).run(now, invite.id);
+  }
+
   return getAssessmentResults();
+}
+
+export function getAssessmentInviteById(inviteId: string) {
+  const db = getDb();
+  const invite = db.prepare(
+    `SELECT id, candidate_name, candidate_email, candidate_phone, vacancy_id, vacancy, department, recruiter, expires_at, created_at, status
+     FROM assessment_invites
+     WHERE id = ?
+     LIMIT 1`
+  ).get(inviteId) as InviteRow | undefined;
+
+  if (!invite) return null;
+  if (invite.status !== 'sent') return mapInvite(invite);
+
+  const now = new Date().toISOString();
+  if (new Date(invite.expires_at).getTime() < Date.now()) {
+    db.prepare(
+      `UPDATE assessment_invites
+       SET status = 'expired', updated_at = ?
+       WHERE id = ?`
+    ).run(now, invite.id);
+    return mapInvite({ ...invite, status: 'expired' });
+  }
+
+  return mapInvite(invite);
 }
 
 export function updateWorkspaceSettings(input: Pick<AdminWorkspace, 'organizationName' | 'ownerName' | 'ownerRole'>) {

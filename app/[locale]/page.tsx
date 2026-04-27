@@ -21,6 +21,7 @@ import {
   PERFORMANCE_GAME_IDS,
 } from '@/lib/constants';
 import type { Stage, GameId, GameResult, CandidateProfile, ScoresMap, MetricsMap, SeenTutorialMap, ResumeSnapshot, AccessType } from '@/lib/types';
+import type { AssessmentInvite } from '@/types/admin-dashboard';
 
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { LoginScreen } from '@/components/screens/LoginScreen';
@@ -53,6 +54,8 @@ export default function Page() {
   const [strategyProfile, setStrategyProfile] = useState('');
   const [personalityProfile, setPersonalityProfile] = useState('');
   const [, setSeenTutorials] = useState<SeenTutorialMap>({});
+  const [inviteContext, setInviteContext] = useState<AssessmentInvite | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
   const [completedGameDurationsSec, setCompletedGameDurationsSec] = useState<Partial<Record<GameId, number>>>({});
   const [playingClockTick, setPlayingClockTick] = useState(0);
   const isDebugGameMode = useMemo(() => {
@@ -82,6 +85,35 @@ export default function Page() {
     } catch {
       resumeRef.current = null;
     }
+  }, []);
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const inviteId = urlParams.get('invite') || urlParams.get('inviteId');
+    if (!inviteId) return;
+
+    let cancelled = false;
+    fetch(`/api/assessment-invites/${encodeURIComponent(inviteId)}`, { cache: 'no-store' })
+      .then(async (response) => {
+        const data = (await response.json()) as { invite?: AssessmentInvite; error?: string };
+        if (!response.ok || !data.invite) throw new Error(data.error || 'No se pudo cargar la invitación');
+        return data.invite;
+      })
+      .then((invite) => {
+        if (cancelled) return;
+        setInviteContext(invite);
+        if (invite.status !== 'sent') {
+          setInviteError('Esta invitación ya no está activa. Pide a la empresa un nuevo enlace de evaluación.');
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setInviteError(error instanceof Error ? error.message : 'No se pudo cargar la invitación');
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -226,6 +258,7 @@ export default function Page() {
       email: restoredCandidate.email || '',
       role: restoredCandidate.role || '',
       accessType: restoredCandidate.accessType === 'recruiter' ? 'recruiter' : 'candidate',
+      inviteId: restoredCandidate.inviteId,
       acceptedTerms: Boolean(restoredCandidate.acceptedTerms),
       acceptedDataPolicy: Boolean(restoredCandidate.acceptedDataPolicy),
     });
@@ -317,6 +350,7 @@ export default function Page() {
           strategyProfile,
           personalityProfile: resolvedPersonality.profile,
           personalitySubtype: resolvedPersonality.subtype,
+          inviteId: candidate.inviteId,
           scores: nextScores as Record<string, number>,
           metrics: {
             ...(nextMetrics as Record<string, Record<string, number | string | boolean>>),
@@ -400,6 +434,22 @@ export default function Page() {
         <LoginScreen
           canResume={canResume}
           onResume={resumeSession}
+          initialData={
+            inviteContext
+              ? {
+                  name: inviteContext.candidateName,
+                  email: inviteContext.candidateEmail,
+                  role: inviteContext.vacancy,
+                  accessType: 'candidate',
+                }
+              : undefined
+          }
+          notice={
+            inviteError ??
+            (inviteContext?.status === 'sent'
+              ? `Invitación para ${inviteContext.vacancy}. Tus resultados quedarán vinculados al dashboard recruiter.`
+              : null)
+          }
           onSubmit={async (data) => {
             telemetry.track('session_started', {
               role: data.role,
@@ -429,6 +479,7 @@ export default function Page() {
             clearRecruiterAccessSession();
             const nextCandidate: CandidateProfile = {
               ...data,
+              inviteId: inviteContext?.status === 'sent' ? inviteContext.id : undefined,
               acceptedTerms: false,
               acceptedDataPolicy: false,
             };

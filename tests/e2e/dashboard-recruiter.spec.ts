@@ -74,4 +74,112 @@ test.describe('dashboard recruiter/candidate views', () => {
     await expect(page).toHaveURL(/\/es$/);
     expect(consoleErrors.filter((message) => message.includes('Recruiter session required'))).toHaveLength(0);
   });
+
+  test('resultado con invitacion se refleja en el pipeline recruiter', async ({ request }) => {
+    const loginResponse = await request.post('/api/admin/recruiter-access', {
+      data: {
+        action: 'login',
+        name: 'Pipeline Recruiter',
+        email: 'pipeline-recruiter@example.com',
+      },
+    });
+    expect(loginResponse.ok()).toBeTruthy();
+
+    const { session } = (await loginResponse.json()) as {
+      session: {
+        sessionId: string;
+        name: string;
+        email: string;
+      };
+    };
+    const adminHeaders = {
+      'x-initium-recruiter-session': session.sessionId,
+      'x-initium-recruiter-email': session.email,
+    };
+
+    const jobResponse = await request.post('/api/admin/jobs', {
+      headers: adminHeaders,
+      data: {
+        title: `QA Invite Role ${crypto.randomUUID()}`,
+        department: 'Quality',
+        location: 'Remote',
+        owner: session.name,
+      },
+    });
+    expect(jobResponse.ok()).toBeTruthy();
+    const jobWorkspace = (await jobResponse.json()) as {
+      workspace: {
+        jobs: Array<{ id: string; title: string; department: string }>;
+      };
+    };
+    const job = jobWorkspace.workspace.jobs[0];
+    const inviteId = `invite-${crypto.randomUUID()}`;
+    const candidateEmail = `invite-${crypto.randomUUID()}@example.com`;
+
+    const inviteResponse = await request.post('/api/admin/invites', {
+      headers: adminHeaders,
+      data: {
+        id: inviteId,
+        candidateName: 'Invite Candidate',
+        candidateEmail,
+        candidatePhone: '',
+        vacancyId: job.id,
+        vacancy: job.title,
+        department: job.department,
+        recruiter: session.name,
+        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+        createdAt: new Date().toISOString(),
+        status: 'sent',
+      },
+    });
+    expect(inviteResponse.ok()).toBeTruthy();
+
+    const assessmentId = `assessment-${crypto.randomUUID()}`;
+    const assessmentResponse = await request.post('/api/assessment-results', {
+      data: {
+        id: assessmentId,
+        inviteId,
+        candidateName: 'Invite Candidate',
+        candidateEmail,
+        role: job.title,
+        completedAt: new Date().toISOString(),
+        scores: {
+          personality: 78,
+          memory: 82,
+          leadership: 74,
+          problemSolving: 81,
+          ethics: 88,
+          risk: 76,
+          network: 79,
+          strategy: 83,
+        },
+        metrics: {},
+        totalScore: 80,
+        technicalScore: 80,
+        cognitiveScore: 80,
+        softSkillsScore: 80,
+        fitScores: {
+          technicalMatch: 80,
+          cognitivePerformance: 80,
+          behavioralFit: 80,
+          communication: 80,
+          leadershipPotential: 80,
+          cultureFit: 80,
+        },
+      },
+    });
+    expect(assessmentResponse.ok()).toBeTruthy();
+
+    const workspaceResponse = await request.get('/api/admin/workspace', { headers: adminHeaders });
+    expect(workspaceResponse.ok()).toBeTruthy();
+    const { workspace } = (await workspaceResponse.json()) as {
+      workspace: {
+        candidates: Array<{ assessmentId?: string; email: string; vacancyId: string }>;
+        invites: Array<{ id: string; status: string }>;
+      };
+    };
+
+    expect(workspace.candidates.some((candidate) => candidate.assessmentId === assessmentId && candidate.email === candidateEmail && candidate.vacancyId === job.id)).toBeTruthy();
+    expect(workspace.invites.find((invite) => invite.id === inviteId)?.status).toBe('completed');
+  });
 });

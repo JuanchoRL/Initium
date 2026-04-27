@@ -169,6 +169,7 @@ export type AssessmentInvite = {
   expiresAt: string;
   createdAt: string;
   status: AssessmentInviteStatus;
+  assessmentUrl?: string;
 };
 
 export type AlertItem = {
@@ -212,6 +213,7 @@ export type AdminWorkspace = {
 
 export type AssessmentImportRecord = {
   id: string;
+  inviteId?: string | null;
   candidateName: string;
   candidateEmail: string;
   role: string;

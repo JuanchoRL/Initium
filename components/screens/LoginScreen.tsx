@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Brain, UserCircle, Mail, Briefcase } from 'lucide-react';
 import { Button, Card, InputField } from '../ui/core';
 import type { CandidateProfile, AccessType } from '@/lib/types';
@@ -7,10 +7,14 @@ export const LoginScreen = ({
   onSubmit,
   onResume,
   canResume,
+  initialData,
+  notice,
 }: {
   onSubmit: (data: Omit<CandidateProfile, 'acceptedTerms' | 'acceptedDataPolicy'>) => void;
   onResume: () => void;
   canResume: boolean;
+  initialData?: Partial<Pick<CandidateProfile, 'name' | 'email' | 'role' | 'accessType'>>;
+  notice?: string | null;
 }) => {
   const [formData, setFormData] = useState<{
     name: string;
@@ -18,6 +22,16 @@ export const LoginScreen = ({
     role: string;
     accessType: AccessType;
   }>({ name: '', email: '', role: '', accessType: 'candidate' });
+
+  useEffect(() => {
+    if (!initialData) return;
+    setFormData((current) => ({
+      name: initialData.name ?? current.name,
+      email: initialData.email ?? current.email,
+      role: initialData.role ?? current.role,
+      accessType: initialData.accessType ?? current.accessType,
+    }));
+  }, [initialData]);
   const emailValid = /\S+@\S+\.\S+/.test(formData.email);
   const candidateRoleValid = formData.accessType !== 'candidate' || formData.role.trim().length > 1;
   const canSubmit = Boolean(formData.name.trim()) && emailValid && candidateRoleValid;
@@ -69,6 +83,12 @@ export const LoginScreen = ({
             <div className="text-center mb-6">
               <h3 className="text-xl font-semibold text-stone-700">Acceso a plataforma</h3>
             </div>
+
+            {notice ? (
+              <div className="rounded-xl border border-cyan-100 bg-cyan-50 px-3 py-2 text-sm text-cyan-800">
+                {notice}
+              </div>
+            ) : null}
 
             <div className="space-y-1">
               <p className="text-xs uppercase tracking-wide text-stone-500 font-semibold">Ingresar como</p>

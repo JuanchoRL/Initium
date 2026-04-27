@@ -8,6 +8,7 @@ export type CandidateProfile = {
   email: string;
   role: string;
   accessType: AccessType;
+  inviteId?: string;
   acceptedTerms: boolean;
   acceptedDataPolicy: boolean;
 };

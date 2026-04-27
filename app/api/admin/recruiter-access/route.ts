@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { endRecruiterAccessSession, startRecruiterAccessSession } from '@/lib/server/admin-db';
 import { requireAdminSession } from '@/lib/server/admin-auth';
+import { resolveRecruiterAccess } from '@/lib/server/recruiter-access-policy';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,6 +29,11 @@ export async function POST(request: NextRequest) {
   const userAgent = request.headers.get('user-agent');
 
   if (body.action === 'login') {
+    const access = resolveRecruiterAccess(body.email.trim());
+    if (!access.allowed) {
+      return NextResponse.json({ error: access.reason || 'Recruiter access denied' }, { status: 403 });
+    }
+
     const session = startRecruiterAccessSession({
       sessionId: body.sessionId?.trim() || undefined,
       name: body.name.trim(),

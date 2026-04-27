@@ -1,4 +1,4 @@
-import { CalendarClock, Mail, Phone, Send } from 'lucide-react';
+import { CalendarClock, ExternalLink, Link2, Mail, Phone, Send } from 'lucide-react';
 
 import { Avatar } from '@/components/ui/avatar';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,6 +8,12 @@ import { StatusBadge } from '@/components/admin-dashboard/status-badge';
 import { formatAdminDate, formatAdminTime } from '@/lib/utils';
 
 export function CandidateInvitesPanel({ invites }: { invites: AssessmentInvite[] }) {
+  const resolveInviteUrl = (invite: AssessmentInvite) => {
+    const path = invite.assessmentUrl || `/?invite=${encodeURIComponent(invite.id)}`;
+    if (typeof window === 'undefined') return path;
+    return new URL(path, window.location.origin).toString();
+  };
+
   return (
     <Card className="h-full overflow-hidden border-slate-200/90 bg-white shadow-[0_18px_40px_-28px_rgba(14,165,233,0.2)]">
       <CardHeader className="border-b border-slate-200/80 bg-gradient-to-r from-cyan-50/80 via-white to-white">
@@ -58,6 +64,18 @@ export function CandidateInvitesPanel({ invites }: { invites: AssessmentInvite[]
                       <span>
                         Vence {formatAdminDate(invite.expiresAt)} · {formatAdminTime(invite.expiresAt)}
                       </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Link2 className="h-4 w-4 text-cyan-600" />
+                      <a
+                        href={resolveInviteUrl(invite)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex min-w-0 items-center gap-1 font-medium text-cyan-700 underline-offset-4 hover:underline"
+                      >
+                        <span className="truncate">Abrir enlace de evaluación</span>
+                        <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                      </a>
                     </div>
                   </div>
                 </div>
