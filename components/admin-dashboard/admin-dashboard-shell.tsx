@@ -1394,9 +1394,6 @@ export function AdminDashboardShell() {
 
   const handleLogout = useCallback(async () => {
     const session = recruiterSession;
-    clearRecruiterAccessSession();
-    setRecruiterSession(null);
-    setIsRecruiterAccessValidated(false);
 
     if (session) {
       try {
@@ -1406,9 +1403,13 @@ export function AdminDashboardShell() {
           email: session.email,
         });
       } catch (error) {
-        console.error('Failed to persist recruiter logout', error);
+        console.warn('Failed to persist recruiter logout', error instanceof Error ? error.message : error);
       }
     }
+
+    clearRecruiterAccessSession();
+    setRecruiterSession(null);
+    setIsRecruiterAccessValidated(false);
 
     const locale = params?.locale || 'es';
     router.replace(`/${locale}`);
