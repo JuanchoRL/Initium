@@ -1,6 +1,78 @@
 import { expect, test } from '@playwright/test';
 
+import { buildCandidateSkillsGraph } from '../../lib/admin-dashboard/skills-graph';
+import type { CandidateResult, JobOpening } from '../../types/admin-dashboard';
+
 test.describe('dashboard recruiter/candidate views', () => {
+  test('skills graph explica fit por vacante con evidencia observable', async () => {
+    const job: JobOpening = {
+      id: 'job-product',
+      title: 'Product Manager',
+      department: 'Producto',
+      location: 'Remote',
+      status: 'active',
+      owner: 'QA Recruiter',
+      postedAt: new Date().toISOString(),
+      scoreProfileId: 'product',
+      jobDescription: 'Rol con alta ambigüedad, priorización y comunicación ejecutiva.',
+    };
+    const candidate: CandidateResult = {
+      id: 'candidate-skills-graph',
+      name: 'Skill Graph Candidate',
+      email: 'skills-graph@example.com',
+      vacancyId: job.id,
+      vacancy: job.title,
+      department: job.department,
+      totalScore: 82,
+      technicalScore: 77,
+      cognitiveScore: 80,
+      softSkillsScore: 86,
+      fitScores: {
+        technicalMatch: 76,
+        cognitivePerformance: 80,
+        behavioralFit: 86,
+        communication: 88,
+        leadershipPotential: 84,
+        cultureFit: 87,
+      },
+      status: 'active',
+      pipelineStage: 'assessment',
+      appliedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      location: 'Montevideo',
+      recruiter: 'QA Recruiter',
+      source: 'assessment',
+      rawScores: {
+        memory: 78,
+        leadership: 82,
+        problemSolving: 88,
+        ethics: 84,
+        risk: 68,
+        network: 76,
+        strategy: 91,
+      },
+      scoreProfileId: 'product',
+    };
+
+    const graph = buildCandidateSkillsGraph({
+      candidate,
+      job,
+      metrics: {
+        strategy: { diversity_index: 0.84, adjustments: 9 },
+        problemSolving: { structure: 91, empathy: 83, decisiveness: 86 },
+        leadership: { role_match_rate: 0.82, recovery_index: 78, overload_warnings: 1 },
+        ethics: { ethical_integrity: 84, decision_consistency: 88, pressure_control: 80 },
+      },
+    });
+
+    expect(graph.profileLabel).toBe('Producto');
+    expect(graph.readiness).toBeGreaterThanOrEqual(75);
+    expect(graph.nodes[0].requiredLevel).toBeGreaterThanOrEqual(80);
+    expect(graph.nodes.some((node) => node.id === 'strategic-prioritization')).toBeTruthy();
+    expect(graph.nodes.some((node) => node.evidence.length >= 2)).toBeTruthy();
+    expect(graph.nodes.every((node) => node.interviewPrompt.length > 20)).toBeTruthy();
+  });
+
   test('recruiter view muestra bloques de decision e insights', async ({ page }) => {
     await page.goto('/?debug_stage=results&debug_access=recruiter');
 

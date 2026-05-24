@@ -18,10 +18,12 @@ import type {
   JobOpening,
   VacancyRecommendation,
 } from '@/types/admin-dashboard';
+import type { MetricsMap } from '@/lib/types';
 import { getVacancyScoreProfileLabel } from '@/lib/admin-dashboard/vacancy-scoring';
 import { formatAdminDate, formatAdminDateTime } from '@/lib/utils';
-import { deriveBehavioralInsights, type BehavioralInsight } from '@/lib/assessment/behavioral-insights';
+import { deriveBehavioralInsights } from '@/lib/assessment/behavioral-insights';
 import { CandidatePdfExportButton } from '@/components/admin-dashboard/candidate-pdf-preview';
+import { SkillsGraphPanel } from '@/components/admin-dashboard/skills-graph-panel';
 
 const realScoreRows = [
   ['Memoria', 'memory'],
@@ -127,6 +129,16 @@ export function CandidateDetailModal({
       setIsGeneratingMatch(false);
     }
   };
+
+  const assessmentRecord = useMemo(
+    () => (candidate?.assessmentId ? assessmentRecords.find((record) => record.id === candidate.assessmentId) : undefined),
+    [assessmentRecords, candidate?.assessmentId]
+  );
+
+  const selectedJob = useMemo(() => {
+    if (!candidate) return null;
+    return jobs.find((job) => job.id === vacancyDraft) ?? jobs.find((job) => job.id === candidate.vacancyId) ?? null;
+  }, [candidate, jobs, vacancyDraft]);
 
   if (!candidate) return null;
   const rawScores = candidate.rawScores;
@@ -278,6 +290,12 @@ export function CandidateDetailModal({
               </div>
             </div>
 
+            <SkillsGraphPanel
+              candidate={candidate}
+              job={selectedJob}
+              metrics={assessmentRecord?.metrics as Partial<MetricsMap> | undefined}
+            />
+
             {/* EVALUACIÓN DE SISTEMA */}
             <div className={`mb-8 overflow-hidden rounded-2xl border ${decisionMeta.surfaceClass}`}>
               <div className="bg-white/50 p-4 border-b border-current/10">
@@ -361,7 +379,6 @@ export function CandidateDetailModal({
             {/* SEÑALES DE COMPORTAMIENTO */}
             {(() => {
               if (!candidate.assessmentId) return null;
-              const assessmentRecord = assessmentRecords.find((r) => r.id === candidate.assessmentId);
               if (!assessmentRecord?.metrics) return null;
               const insights = deriveBehavioralInsights(assessmentRecord.metrics as any);
               if (!insights.length) return null;
@@ -513,15 +530,10 @@ export function CandidateDetailModal({
 
             {/* BOTÓN GUARDAR + PDF - Siempre visible */}
             <div className="shrink-0 border-t border-slate-200 bg-white p-4 space-y-2">
-               {(() => {
-                 const assessmentRecord = assessmentRecords.find((r) => r.id === candidate.assessmentId);
-                 return (
-                   <CandidatePdfExportButton
-                     candidate={candidate}
-                     assessmentMetrics={assessmentRecord?.metrics}
-                   />
-                 );
-               })()}
+               <CandidatePdfExportButton
+                 candidate={candidate}
+                 assessmentMetrics={assessmentRecord?.metrics}
+               />
                <Button
                   className="w-full h-12 text-sm font-bold shadow-md"
                   onClick={() =>
